@@ -10,8 +10,10 @@ Record answers inline in this file as you go.
 
 ## Setup
 
+Tested with `sbx v0.39.0` on Ubuntu 24.04 x86_64 with nested KVM.
+
 ```bash
-brew install docker/tap/sbx
+# Install sbx by following https://docs.docker.com/ai/sandboxes/install/
 sbx version
 sbx login
 sbx setup
@@ -23,6 +25,7 @@ Use a scoped daemon so experiments don't pollute your real state:
 ```bash
 export APP=sluss-spike
 sbx --app-name $APP login
+sbx --app-name $APP policy init balanced
 # clean up any time with:
 sbx --app-name $APP reset --force
 ```
@@ -45,6 +48,15 @@ Also check the exact workspace path inside the sandbox — docs suggest `/home/a
 **If false:** worktrees become pointless. Switch to `--clone` plus an explicit sync step (`sbx cp`, or push to a branch). Rewrite §6.
 
 **Answer:**
+
+**True with an additional mount.** Plain workspace files synchronized in both directions,
+and the sandbox used the same workspace path as the host. Mounting only a linked worktree
+failed because its `.git` file pointed to the main repository outside the mounted
+workspace. Passing the main repository's `.git` directory as a second writable workspace
+made `git status`, staging, and committing work, with the commit immediately visible on
+the host. Two concurrent sandboxes also accepted the same `.git` mount while using
+different worktrees and branches. `SPEC.md` section 6 must require this second mount;
+it gives each sandbox access to all Git objects and refs in that repository.
 
 ---
 
@@ -105,7 +117,7 @@ Then compare, on the same prompt:
 
 ```bash
 sbx ports --help
-sbx ports publish spike 4096:14096      # verify actual syntax
+sbx --app-name $APP ports spike --publish 14096:4096
 curl -v http://127.0.0.1:14096
 ```
 
@@ -114,6 +126,11 @@ Need to confirm: can you choose the host port, or is one assigned? Is it per-san
 **If ports are assigned rather than chosen:** sluss reads the assignment after creation instead of allocating, and the routing table becomes dynamic.
 
 **Answer:**
+
+With v0.39.0, the host port can be chosen using
+`sbx ports <sandbox> --publish <host>:<sandbox>`. The fixed mapping was restored after
+the sandbox stopped and started, although `sbx ports --json` returned no active mappings
+while it was stopped.
 
 ---
 

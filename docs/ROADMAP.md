@@ -2,7 +2,8 @@
 
 Sequencing for `SPEC.md`. Phases there describe *what* gets built; this describes *in what order*, *what unlocks the next step*, and *where the honest stopping points are*.
 
-**Status:** M0 not started. Every assumption in `SPIKE.md` is unanswered, so nothing below M0 is committed work.
+**Status:** M0 in progress. Assumption 1 is verified; the remaining assumptions in
+`SPIKE.md` must be answered before anything below M0 becomes committed work.
 
 ---
 
@@ -63,14 +64,9 @@ The other two kill criteria stay live throughout: SSE unpleasant after tuning â†
 
 ---
 
-## Provisional, cheap to change
+## Module path
 
-**Module path is `github.com/marwal/sluss`.** Guessed from the local username; no git remote exists yet to confirm it. If the GitHub handle differs, fix it before there are many imports:
-
-```bash
-go mod edit -module github.com/<you>/sluss
-grep -rl github.com/marwal/sluss --include='*.go' . | xargs sed -i 's|github.com/marwal/sluss|github.com/<you>/sluss|g'
-```
+The confirmed module path is `github.com/waldemarsson/sluss`.
 
 ---
 

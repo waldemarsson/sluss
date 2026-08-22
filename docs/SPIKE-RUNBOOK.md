@@ -20,7 +20,6 @@ don't write code — revise `SPEC.md` first.
 
 - [ ] Open **Terminal.app on macOS** (not the VS Code container terminal). Sanity check:
       `uname -s` prints `Darwin`. If it prints `Linux`, you're in the container.
-- [ ] Docker Desktop is running.
 - [ ] `cd /Users/marwal/code/private/sluss` — the repo is bind-mounted at the same path on
       both sides, so host and container see identical files. Logs you write here are
       readable from the container session.
@@ -41,9 +40,10 @@ export APP=sluss-spike     # scoped daemon — keeps experiments out of your rea
 ## 1. Install sbx
 
 ```bash
-brew install docker/tap/sbx
+# Install sbx by following https://docs.docker.com/ai/sandboxes/install/
 sbx version
 sbx --app-name $APP login
+sbx --app-name $APP policy init balanced
 sbx --app-name $APP setup
 ```
 
@@ -66,10 +66,12 @@ into the workspace, and a throwaway means cleanup can't touch real work.
 ```bash
 mkdir -p ~/src/sluss-spike-repo && cd ~/src/sluss-spike-repo
 git init -q && echo "# spike" > README.md && git add -A && git commit -qm init
+git worktree add -b agent/spike ~/src/sluss-spike-worktree
 cd /Users/marwal/code/private/sluss
 ```
 
-- [ ] Repo exists at `~/src/sluss-spike-repo`.
+- [ ] Repo and linked worktree exist at `~/src/sluss-spike-repo` and
+      `~/src/sluss-spike-worktree`.
 
 ---
 
@@ -78,7 +80,8 @@ cd /Users/marwal/code/private/sluss
 The whole worktree model in `SPEC.md` §6 rests on this.
 
 ```bash
-sbx --app-name $APP create opencode --name spike ~/src/sluss-spike-repo 2>&1 | tee spike/out/03a-create.log
+sbx --app-name $APP create --name spike opencode \
+  ~/src/sluss-spike-worktree ~/src/sluss-spike-repo/.git 2>&1 | tee spike/out/03a-create.log
 ```
 
 - [ ] Record the **actual** create syntax that worked (flag order, whether the path is
@@ -109,10 +112,8 @@ Now both directions, sandbox → host first:
 
 - [ ] Host shows `hello` → sandbox-to-host works.
 - [ ] Sandbox shows `hello` *and* `world` → host-to-sandbox works.
-- [ ] Bonus, since worktrees are the real use case: does the sandbox see a **git worktree**
-      dir (a `.git` *file* pointing elsewhere), not just a plain directory? If `git status`
-      inside the sandbox fails on a worktree, that's assumption 1 failing in the only shape
-      that matters.
+- [ ] Confirm `git status` works inside the linked worktree. The second writable workspace
+      above is required because the worktree's `.git` file points into the main repository.
 
 **Both directions true → continue. Either false → STOP.** Worktrees become pointless;
 `SPEC.md` §6 needs rewriting around an explicit sync step.
@@ -127,7 +128,7 @@ Now both directions, sandbox → host first:
 Do the publish half now, the persistence half in step 6.
 
 ```bash
-{ sbx --app-name $APP ports --help; sbx --app-name $APP ports publish spike 4096:14096; } 2>&1 | tee spike/out/04a-ports.log
+{ sbx --app-name $APP ports --help; sbx --app-name $APP ports spike --publish 14096:4096; } 2>&1 | tee spike/out/04a-ports.log
 curl -sv http://127.0.0.1:14096 2>&1 | head -20 | tee spike/out/04b-curl.log
 ```
 
@@ -267,6 +268,7 @@ ls -l /dev/kvm                               # inside the guest
 sbx --app-name $APP reset --force
 sbx --app-name profile-a reset --force
 sbx --app-name profile-b reset --force
+git -C ~/src/sluss-spike-repo worktree remove --force ~/src/sluss-spike-worktree
 rm -rf ~/src/sluss-spike-repo /tmp/probe /tmp/kit-a /tmp/kit-b
 ```
 

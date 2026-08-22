@@ -75,7 +75,11 @@ sbx mounts the workspace from the host with bidirectional sync — the host sees
 ~/src/mercurius-sluss/docs          # worktree on agent/docs → mounted into sandbox
 ```
 
-- `env create` → `git worktree add ../<repo>-sluss/<id> -b agent/<id>`, mount that path
+- `env create` → `git worktree add ../<repo>-sluss/<id> -b agent/<id>`, then mount
+  both the worktree and the main repository's `.git` directory writable. A linked
+  worktree's `.git` file points into the main repository, so Git commands inside the
+  sandbox fail without the second mount. Concurrent sandboxes can share this metadata
+  mount while using separate worktrees and branches.
 - Review → `cd` into the worktree, `git diff`, or open in an IDE
 - `env destroy` → refuse if unmerged commits exist unless `--force`, then `git worktree remove`
 

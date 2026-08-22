@@ -30,6 +30,11 @@ tasks:
     cmds:
       - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}}-linux ./cmd/sluss
 
+  install:
+    desc: Download and install the latest sluss release to ~/.local/bin
+    cmds:
+      - ./scripts/install.sh
+
   spike:proxy:
     desc: Cross-compile the M0 spike proxy for the host Mac (docs/SPIKE-RUNBOOK.md)
     env:

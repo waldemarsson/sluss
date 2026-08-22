@@ -1,3 +1,3 @@
-module github.com/marwal/sluss
+module github.com/waldemarsson/sluss
 
 go 1.23

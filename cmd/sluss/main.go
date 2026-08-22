@@ -23,9 +23,9 @@ func main() {
 		return
 	}
 
-	// Nothing else is implemented yet: docs/SPIKE.md is unanswered, and every
+	// Nothing else is implemented yet: docs/SPIKE.md is incomplete, and every
 	// command below depends on an assumption it verifies. Exit non-zero so a
 	// script never mistakes this stub for a working binary.
-	fmt.Fprintln(os.Stderr, "sluss "+version+": not implemented yet — see docs/ROADMAP.md (M0 spike is unanswered)")
+	fmt.Fprintln(os.Stderr, "sluss "+version+": not implemented yet — see docs/ROADMAP.md (M0 spike is incomplete)")
 	os.Exit(1)
 }
