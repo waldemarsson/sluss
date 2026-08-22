@@ -102,9 +102,9 @@ Now both directions, sandbox → host first:
 {
   sbx --app-name $APP exec spike -- sh -c 'echo hello > /home/agent/workspace/SPIKE_TEST'
   echo "--- host sees it? ---"
-  cat ~/src/sluss-spike-repo/SPIKE_TEST
+  cat ~/src/sluss-spike-worktree/SPIKE_TEST
   echo "--- host writes ---"
-  echo world >> ~/src/sluss-spike-repo/SPIKE_TEST
+  echo world >> ~/src/sluss-spike-worktree/SPIKE_TEST
   echo "--- sandbox sees it? ---"
   sbx --app-name $APP exec spike -- cat /home/agent/workspace/SPIKE_TEST
 } 2>&1 | tee spike/out/03c-mount.log

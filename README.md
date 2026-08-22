@@ -35,8 +35,8 @@ curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/ins
   SLUSS_VERSION=v0.1.0 SLUSS_INSTALL_DIR=/usr/local/bin bash
 ```
 
-There are no releases yet, so the installer will return 404 until the first version tag is
-published. That release will still contain the M0 stub rather than a usable CLI.
+The installer and `sluss version` command have been validated with the `v0.1.0` release.
+That release still contains the M0 stub rather than a usable CLI.
 Docker Sandboxes is a separate runtime prerequisite; follow
 [Docker's installation guide](https://docs.docker.com/ai/sandboxes/install/).
 

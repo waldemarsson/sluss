@@ -49,9 +49,16 @@ Rationale for choices that look arbitrary from inside the code, and the alternat
 
 ## D4 — Host worktrees, not in-sandbox clones
 
-**Chosen:** a git worktree per environment on the host, mounted into the sandbox.
+**Chosen:** a git worktree per environment on the host, mounted into the sandbox together
+with the main repository's `.git` directory as a second writable workspace.
 
-**Why:** sbx syncs the mounted workspace bidirectionally, so the host sees agent changes live and review is ordinary `git diff`. One directory can only be mounted by one sandbox, so parallel environments need worktrees.
+**Why:** sbx syncs the mounted workspace bidirectionally, so the host sees agent changes
+live and review is ordinary `git diff`. A linked worktree's `.git` file points into the
+main repository; Git commands fail in the sandbox unless that metadata is mounted too.
+The spike confirmed two sandboxes can share the metadata mount while using separate
+worktrees and branches. This intentionally gives each sandbox writable access to the
+repository's shared objects and refs. One worktree directory can only be mounted by one
+sandbox, so parallel environments still need separate worktrees.
 
 **Rejected:**
 - *`git ext::` transport over `docker exec` / `sbx exec`* — a clever earlier design for extracting work from a fully isolated container. Obsolete once bidirectional sync was confirmed. Do not resurrect it.
