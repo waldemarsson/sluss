@@ -13,7 +13,7 @@ Record answers inline in this file as you go.
 Tested with `sbx v0.39.0` on Ubuntu 24.04 x86_64 with nested KVM.
 
 ```bash
-./scripts/install-sbx.sh
+# Install sbx by following https://docs.docker.com/ai/sandboxes/install/
 sbx version
 sbx login
 sbx setup

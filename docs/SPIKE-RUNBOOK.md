@@ -40,7 +40,7 @@ export APP=sluss-spike     # scoped daemon — keeps experiments out of your rea
 ## 1. Install sbx
 
 ```bash
-./scripts/install-sbx.sh
+# Install sbx by following https://docs.docker.com/ai/sandboxes/install/
 sbx version
 sbx --app-name $APP login
 sbx --app-name $APP policy init balanced

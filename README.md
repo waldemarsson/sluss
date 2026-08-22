@@ -36,8 +36,8 @@ curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/ins
 ```
 
 There are no releases yet, so this currently builds the M0 stub rather than a usable CLI.
-Docker Sandboxes is a separate runtime prerequisite; install it with
-`./scripts/install-sbx.sh` or follow Docker's installation guide.
+Docker Sandboxes is a separate runtime prerequisite; follow
+[Docker's installation guide](https://docs.docker.com/ai/sandboxes/install/).
 
 ## Development
 

@@ -35,11 +35,6 @@ tasks:
     cmds:
       - ./scripts/install.sh
 
-  install:sbx:
-    desc: Install the sbx prerequisite on macOS or Ubuntu
-    cmds:
-      - ./scripts/install-sbx.sh
-
   spike:proxy:
     desc: Cross-compile the M0 spike proxy for the host Mac (docs/SPIKE-RUNBOOK.md)
     env:
