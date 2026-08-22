@@ -4,7 +4,8 @@ A single-binary control plane over [Docker Sandboxes](https://docs.docker.com/ai
 
 *sluss* is Swedish for an airlock or canal lock — an enclosed chamber things pass through in isolation.
 
-**Status: pre-code.** The design is settled; the assumptions it rests on are not. `docs/SPIKE.md` has seven unanswered questions, two of them load-bearing, and nothing gets built until they're answered.
+**Status: M0 spike in progress.** The design is settled, but its remaining assumptions
+must be verified before implementation starts. See `docs/SPIKE.md`.
 
 ## Docs
 
@@ -19,6 +20,23 @@ A single-binary control plane over [Docker Sandboxes](https://docs.docker.com/ai
 | [AGENTS.md](AGENTS.md) | Instructions for coding agents |
 
 ## Development
+
+Install Docker Sandboxes on macOS or Ubuntu 24.04+:
+
+```bash
+./scripts/install-sbx.sh
+```
+
+After this change is available on GitHub, the same script can be piped to Bash:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/install-sbx.sh | bash
+```
+
+Review downloaded scripts before running them if you do not trust the source. The script
+uses Docker's official Homebrew tap on macOS and apt repository on Ubuntu, then prints
+the interactive login and policy setup commands. It does not install `sluss` yet because
+the project is still in its M0 spike.
 
 ```bash
 task build     # host binary → dist/sluss
