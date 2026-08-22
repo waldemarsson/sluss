@@ -27,14 +27,10 @@ Install Docker Sandboxes on macOS or Ubuntu 24.04+:
 ./scripts/install-sbx.sh
 ```
 
-Because this repository is private, piping the script from GitHub requires a token with
-repository read access:
+The same script can be piped directly from GitHub:
 
 ```bash
-curl -fsSL \
-  -H "Authorization: Bearer $GH_TOKEN" \
-  -H "Accept: application/vnd.github.raw+json" \
-  https://api.github.com/repos/waldemarsson/sluss/contents/scripts/install-sbx.sh | bash
+curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/install-sbx.sh | bash
 ```
 
 Review downloaded scripts before running them if you do not trust the source. The script
