@@ -45,7 +45,8 @@ mkdir -p "$install_dir"
 
 printf 'Installed sluss %s to %s/sluss\n' "$version" "$install_dir"
 if [[ ":${PATH}:" != *":${install_dir}:"* ]]; then
-	printf 'Add %s to PATH to run sluss without its full path.\n' "$install_dir"
+	printf 'Add sluss to PATH for the current shell:\n'
+	printf "  export PATH=\"%s:\$PATH\"\n" "$install_dir"
 fi
 
 if ! command -v sbx >/dev/null 2>&1; then
