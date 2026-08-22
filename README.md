@@ -19,24 +19,27 @@ must be verified before implementation starts. See `docs/SPIKE.md`.
 | [docs/BACKGROUND.md](docs/BACKGROUND.md) | How the design got here, and an honest read |
 | [AGENTS.md](AGENTS.md) | Instructions for coding agents |
 
+## Install
+
+Install the current `main` version of sluss from source:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/install.sh | bash
+```
+
+This requires Go 1.23+ and installs to `~/.local/bin`. Override the version or destination
+with `SLUSS_VERSION` and `SLUSS_INSTALL_DIR`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/install.sh |
+  SLUSS_VERSION=v0.1.0 SLUSS_INSTALL_DIR=/usr/local/bin bash
+```
+
+There are no releases yet, so this currently builds the M0 stub rather than a usable CLI.
+Docker Sandboxes is a separate runtime prerequisite; install it with
+`./scripts/install-sbx.sh` or follow Docker's installation guide.
+
 ## Development
-
-Install Docker Sandboxes on macOS or Ubuntu 24.04+:
-
-```bash
-./scripts/install-sbx.sh
-```
-
-The same script can be piped directly from GitHub:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/install-sbx.sh | bash
-```
-
-Review downloaded scripts before running them if you do not trust the source. The script
-uses Docker's official Homebrew tap on macOS and apt repository on Ubuntu, then prints
-the interactive login and policy setup commands. It does not install `sluss` yet because
-the project is still in its M0 spike.
 
 ```bash
 task build     # host binary → dist/sluss

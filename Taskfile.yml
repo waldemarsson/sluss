@@ -30,6 +30,11 @@ tasks:
     cmds:
       - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}}-linux ./cmd/sluss
 
+  install:
+    desc: Build and install sluss to ~/.local/bin
+    cmds:
+      - ./scripts/install.sh
+
   install:sbx:
     desc: Install the sbx prerequisite on macOS or Ubuntu
     cmds:

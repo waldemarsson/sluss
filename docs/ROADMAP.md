@@ -64,14 +64,9 @@ The other two kill criteria stay live throughout: SSE unpleasant after tuning â†
 
 ---
 
-## Provisional, cheap to change
+## Module path
 
-**Module path is `github.com/marwal/sluss`.** Guessed from the local username; no git remote exists yet to confirm it. If the GitHub handle differs, fix it before there are many imports:
-
-```bash
-go mod edit -module github.com/<you>/sluss
-grep -rl github.com/marwal/sluss --include='*.go' . | xargs sed -i 's|github.com/marwal/sluss|github.com/<you>/sluss|g'
-```
+The confirmed module path is `github.com/waldemarsson/sluss`.
 
 ---
 
