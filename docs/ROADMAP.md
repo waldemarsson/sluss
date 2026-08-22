@@ -13,7 +13,7 @@ Sequencing for `SPEC.md`. Phases there describe *what* gets built; this describe
 |---|---|---|---|
 | **M0** | Spike | `SPIKE.md` answered — 1 and 3 first, then 2, 4, 5, 7. Assumption 6 only if M5 is still wanted. | Verdict paragraph written: build, revise, or abandon |
 | **M0.5** | Repo skeleton | Initial commit, `.gitignore`, `AGENTS.md` at root, `idea/` → `docs/`, `go mod init`, Taskfile | `go build ./...` passes |
-| **M1a** | Walking skeleton | `env create` (worktree → `sbx create` → state write, with unwind) and `env destroy` (unmerged check → `sbx rm` → worktree remove) | One environment created and destroyed; `git worktree list` correct after both |
+| **M1a** | Walking skeleton | `env create` (worktree → `sbx create` with the worktree and shared Git metadata mounted writable → state write, with unwind) and `env destroy` (unmerged check → `sbx rm` → worktree remove) | One environment created and destroyed; Git works inside it; `git worktree list` is correct after both |
 | **M1b** | Proxy | `sluss serve` on `127.0.0.1:8420`, host-header routing, `FlushInterval: -1`, routing table rebuilt from state at startup | `auth.sluss.localhost:8420` streams OpenCode tokens at TUI speed |
 | **M1c** | Daily loop | `env list`, `env open`, `env stop`, defaults for `--app-name` / `--kit` from `~/.config/sluss/config.json` | Two environments running in parallel on one repo, both reviewed with ordinary `git diff` |
 | **GATE** | Two weeks of use | No code | See *Gate* below |
@@ -87,6 +87,7 @@ These are answered by spiking, not by deciding.
 Carried from `AGENTS.md` and `DECISIONS.md`, repeated because they are cheap now and expensive later:
 
 - **All sbx invocation lives in `internal/sbx`,** app-name a parameter on every command. This is what keeps profiles a small addition rather than a hunt (D3, D10).
+- **Every worktree sandbox also mounts the main repository's `.git` directory writable.** A linked worktree's `.git` file points there; without the second mount, Git fails inside the sandbox (SPIKE 1, D4).
 - **`FlushInterval: -1` is load-bearing** (D5). No buffering middleware, no `Content-Length` on streamed responses.
 - **Every multi-step operation gets its unwind path written at the same time as the happy path** — worktree created but `sbx create` failed means the worktree is removed.
 - **sluss parses no YAML** (D6). JSON in, `.sbxenv.yaml` emitted only.
