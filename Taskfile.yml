@@ -30,6 +30,14 @@ tasks:
     cmds:
       - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}}-linux ./cmd/sluss
 
+  spike:proxy:
+    desc: Cross-compile the M0 spike proxy for the host Mac (docs/SPIKE-RUNBOOK.md)
+    env:
+      GOOS: darwin
+      GOARCH: arm64
+    cmds:
+      - go build -o dist/spike-proxy ./spike/proxy
+
   fmt:
     desc: Format all Go source
     cmds:

@@ -2,6 +2,7 @@
 /dist/
 
 # Go
+/spike/out/
 *.test
 *.out
 
