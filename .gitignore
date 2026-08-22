@@ -1,0 +1,20 @@
+# Build output
+/dist/
+
+# Go
+*.test
+*.out
+
+# Dashboard
+/web/dashboard/node_modules/
+/web/dashboard/.svelte-kit/
+/web/dashboard/build/*
+!/web/dashboard/build/.gitkeep
+
+# Editors / OS
+.DS_Store
+.idea/
+*.swp
+
+# trailmix workflow artifacts
+.trailmix/

@@ -1,0 +1,188 @@
+// .devcontainer/devcontainer.json
+{
+  "name": "sluss (Go + SvelteKit)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "..",
+  },
+  // ======================== Features ========================
+  "features": {
+    // Go — sluss itself (see docs/DECISIONS.md D2)
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "latest",
+    },
+    // Node.js — the embedded Svelte dashboard (M4) + required runtime for Claude Code and Copilot CLI
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22",
+    },
+    // Docker-in-Docker — run/build containers inside the devcontainer
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "moby": true,
+      "version": "latest",
+      "enableNonRootDocker": true,
+      "installDockerBuildx": true,
+      "dockerDashComposeVersion": "v2",
+    },
+    // Claude Code — Anthropic's AI coding CLI
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
+    // GitHub Copilot CLI
+    "ghcr.io/devcontainers/features/copilot-cli:1": {},
+  },
+  // Node.js must install before Claude Code and Copilot CLI (both npm-based).
+  "overrideFeatureInstallOrder": [
+    "ghcr.io/devcontainers/features/go",
+    "ghcr.io/devcontainers/features/docker-in-docker",
+    "ghcr.io/devcontainers/features/node",
+    "ghcr.io/anthropics/devcontainer-features/claude-code",
+    "ghcr.io/devcontainers/features/copilot-cli",
+  ],
+  // ======================== Filesystem Isolation ========================
+  // Mount target matches the host path exactly (not /workspace) so paths recorded
+  // inside the container — Go build cache entries, and the worktree paths sluss
+  // writes into its state files — stay valid on both sides.
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached",
+  "workspaceFolder": "${localWorkspaceFolder}",
+  "mounts": [
+    // Named volumes for build caches — persist across rebuilds
+    {
+      "source": "devcontainer-gomod-${devcontainerId}",
+      "target": "/home/vscode/go/pkg/mod",
+      "type": "volume",
+    },
+    {
+      "source": "devcontainer-gobuild-${devcontainerId}",
+      "target": "/home/vscode/.cache/go-build",
+      "type": "volume",
+    },
+    {
+      "source": "devcontainer-npm-${devcontainerId}",
+      "target": "/home/vscode/.npm",
+      "type": "volume",
+    },
+    // Bind-mount Copilot skills/agents/extensions/workflow/plugins/etc so host and container stay in sync.
+    // Deliberately excludes ~/.copilot/{config.json,data.db,session-state,chats,logs} —
+    // those hold credentials and other sessions' history and must never enter the container.
+    // Run once on your Mac before first open:
+    //   mkdir -p ~/.copilot/{skills,agents,extensions,workflow,installed-plugins,plugin-data,instructions,prompts,commands,hooks} ~/.agents/skills
+    //   touch ~/.copilot/copilot-instructions.md ~/.copilot/hooks/hooks.json
+    {
+      "source": "${localEnv:HOME}/.copilot/skills",
+      "target": "/home/vscode/.copilot/skills",
+      "type": "bind",
+    },
+    {
+      "source": "${localEnv:HOME}/.copilot/agents",
+      "target": "/home/vscode/.copilot/agents",
+      "type": "bind",
+    },
+    {
+      "source": "${localEnv:HOME}/.copilot/extensions",
+      "target": "/home/vscode/.copilot/extensions",
+      "type": "bind",
+    },
+    {
+      "source": "${localEnv:HOME}/.copilot/workflow",
+      "target": "/home/vscode/.copilot/workflow",
+      "type": "bind",
+    },
+    {
+      "source": "${localEnv:HOME}/.copilot/installed-plugins",
+      "target": "/home/vscode/.copilot/installed-plugins",
+      "type": "bind",
+    },
+    {
+      "source": "${localEnv:HOME}/.copilot/plugin-data",
+      "target": "/home/vscode/.copilot/plugin-data",
+      "type": "bind",
+    },
+    {
+      "source": "${localEnv:HOME}/.copilot/instructions",
+      "target": "/home/vscode/.copilot/instructions",
+      "type": "bind",
+    },
+    {
+      "source": "${localEnv:HOME}/.copilot/prompts",
+      "target": "/home/vscode/.copilot/prompts",
+      "type": "bind",
+    },
+    {
+      "source": "${localEnv:HOME}/.copilot/commands",
+      "target": "/home/vscode/.copilot/commands",
+      "type": "bind",
+    },
+    {
+      "source": "${localEnv:HOME}/.copilot/hooks/hooks.json",
+      "target": "/home/vscode/.copilot/hooks/hooks.json",
+      "type": "bind",
+    },
+    {
+      "source": "${localEnv:HOME}/.copilot/copilot-instructions.md",
+      "target": "/home/vscode/.copilot/copilot-instructions.md",
+      "type": "bind",
+    },
+    {
+      "source": "${localEnv:HOME}/.agents/skills",
+      "target": "/home/vscode/.agents/skills",
+      "type": "bind",
+    },
+    // Bind-mount the whole Claude Code config folder — reuses your host's authenticated
+    // session (subscription auth) so the container doesn't need a separate ANTHROPIC_API_KEY.
+    // This also syncs sessions/projects/history — acceptable here since this folder is hobby-project only.
+    // Target MUST match the host's absolute path: plugin metadata (installed_plugins.json,
+    // known_marketplaces.json) stores literal absolute paths like /Users/<you>/.claude/plugins/cache/...
+    // Mounting at /home/vscode/.claude instead breaks those lookups (plugin shows "cache miss").
+    {
+      "source": "${localEnv:HOME}/.claude",
+      "target": "${localEnv:HOME}/.claude",
+      "type": "bind",
+    },
+  ],
+  // ======================== Runtime ========================
+  "remoteUser": "vscode",
+  "containerEnv": {
+    // Claude auth comes from the bind-mounted ~/.claude (subscription session) — no API key needed.
+    // Must match the mount target above (host's absolute path) for plugin cache paths to resolve.
+    "CLAUDE_CONFIG_DIR": "${localEnv:HOME}/.claude",
+    // GitHub Copilot
+    "COPILOT_GITHUB_TOKEN": "${localEnv:GITHUB_ENTERPRISE_PAT}",
+    "COPILOT_GH_HOST": "${localEnv:GITHUB_ENTERPRISE_HOST}",
+    // Fine-grained PAT scoped to this repo only — lets `git push` and `gh` work without
+    // mounting your SSH key. Needs "Contents: read/write" for git push (wired into a git
+    // credential helper in postCreate.sh) and "Pull requests: read/write" for `gh pr create`
+    // (gh reads GH_TOKEN directly, no separate `gh auth login` needed). Never written to disk.
+    // Set on the host: export GITHUB_PRIVATE_REPOS_PAT=...
+    "GH_TOKEN": "${localEnv:GITHUB_PRIVATE_REPOS_PAT}",
+    // Editor for external prompt editing (Ctrl+G) and CLI tools that shell out to $EDITOR
+    "EDITOR": "micro",
+    "VISUAL": "micro",
+    "TERM": "xterm-256color",
+  },
+  // ======================== VS Code Extensions ========================
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "golang.go",
+        "svelte.svelte-vscode",
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode",
+      ],
+      "settings": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        // Go formats with gofmt via the Go extension, not prettier.
+        "[go]": {
+          "editor.defaultFormatter": "golang.go",
+        },
+      },
+    },
+  },
+  // ======================== Lifecycle ========================
+  "postCreateCommand": "bash .devcontainer/postCreate.sh",
+  // ======================== Host Requirements ========================
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb",
+  },
+}

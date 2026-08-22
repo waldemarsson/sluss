@@ -1,0 +1,66 @@
+version: "3"
+
+vars:
+  BIN: dist/sluss
+
+env:
+  CGO_ENABLED: "0"
+
+tasks:
+  default:
+    cmds:
+      - task: check
+
+  build:
+    desc: Build for the host platform
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+    cmds:
+      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}} ./cmd/sluss
+
+  build:linux:
+    desc: Cross-compile for the NAS (M5)
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+    env:
+      GOOS: linux
+      GOARCH: amd64
+    cmds:
+      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}}-linux ./cmd/sluss
+
+  fmt:
+    desc: Format all Go source
+    cmds:
+      - gofmt -w .
+
+  fmt:check:
+    desc: Fail if anything is not gofmt'd
+    cmds:
+      - |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "not gofmt'd (run 'task fmt'):" >&2
+          echo "$unformatted" >&2
+          exit 1
+        fi
+
+  vet:
+    cmds:
+      - go vet ./...
+
+  test:
+    cmds:
+      - go test ./...
+
+  check:
+    desc: What must pass before finishing a change (AGENTS.md)
+    cmds:
+      - task: fmt:check
+      - task: vet
+      - task: test
+
+  clean:
+    cmds:
+      - rm -rf dist
