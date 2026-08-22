@@ -21,21 +21,22 @@ must be verified before implementation starts. See `docs/SPIKE.md`.
 
 ## Install
 
-Install the current `main` version of sluss from source:
+Install the latest sluss release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/install.sh | bash
 ```
 
-This requires Go 1.23+ and installs to `~/.local/bin`. Override the version or destination
-with `SLUSS_VERSION` and `SLUSS_INSTALL_DIR`:
+This installs a verified release binary to `~/.local/bin`; Go is not required. Override
+the version or destination with `SLUSS_VERSION` and `SLUSS_INSTALL_DIR`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/install.sh |
   SLUSS_VERSION=v0.1.0 SLUSS_INSTALL_DIR=/usr/local/bin bash
 ```
 
-There are no releases yet, so this currently builds the M0 stub rather than a usable CLI.
+There are no releases yet, so the installer will return 404 until the first version tag is
+published. That release will still contain the M0 stub rather than a usable CLI.
 Docker Sandboxes is a separate runtime prerequisite; follow
 [Docker's installation guide](https://docs.docker.com/ai/sandboxes/install/).
 

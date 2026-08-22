@@ -31,7 +31,7 @@ tasks:
       - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}}-linux ./cmd/sluss
 
   install:
-    desc: Build and install sluss to ~/.local/bin
+    desc: Download and install the latest sluss release to ~/.local/bin
     cmds:
       - ./scripts/install.sh
 
