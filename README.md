@@ -4,8 +4,8 @@ A single-binary control plane over [Docker Sandboxes](https://docs.docker.com/ai
 
 *sluss* is Swedish for an airlock or canal lock — an enclosed chamber things pass through in isolation.
 
-**Status: M0 spike in progress.** The design is settled, but its remaining assumptions
-must be verified before implementation starts. See `docs/SPIKE.md`.
+**Status:** the planned Go application is on hold. The repository currently provides a
+small shell wrapper for the sbx and Git-worktree workflow.
 
 ## Docs
 
@@ -21,24 +21,68 @@ must be verified before implementation starts. See `docs/SPIKE.md`.
 
 ## Install
 
-Install the latest sluss release:
+Install the lightweight `sluss` script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/install.sh | bash
 ```
 
-This installs a verified release binary to `~/.local/bin`; Go is not required. Override
-the version or destination with `SLUSS_VERSION` and `SLUSS_INSTALL_DIR`:
+This downloads the script from `main`, validates its shell syntax, and installs it to
+`~/.local/bin`. Override the Git ref or destination with `SLUSS_REF` and
+`SLUSS_INSTALL_DIR`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/install.sh |
-  SLUSS_VERSION=v0.1.0 SLUSS_INSTALL_DIR=/usr/local/bin bash
+  SLUSS_REF=my-branch SLUSS_INSTALL_DIR=/usr/local/bin bash
 ```
 
-The installer and `sluss version` command have been validated with the `v0.1.0` release.
-That release still contains the M0 stub rather than a usable CLI.
 Docker Sandboxes is a separate runtime prerequisite; follow
 [Docker's installation guide](https://docs.docker.com/ai/sandboxes/install/).
+
+## Lightweight sbx workflow
+
+For local development, install the checked-out script directly:
+
+```bash
+install -m 0755 scripts/sluss ~/.local/bin/sluss
+```
+
+Set optional defaults in `~/.config/fish/config.fish`:
+
+```fish
+set -gx SLUSS_WORKTREE_ROOT "$HOME/src/worktrees"
+set -gx SLUSS_AGENT opencode
+set -gx SLUSS_APP_NAME personal # optional identity and secret scope
+source /path/to/sluss/scripts/sluss.fish # adds sluss-cd
+```
+
+Then, from the primary checkout:
+
+```fish
+sluss start auth --kit ~/kits/omegapoint --publish 14096:4096
+sluss list
+sluss-cd auth
+sluss attach auth
+sluss stop auth
+sluss destroy auth       # refuses dirty or unmerged work
+```
+
+Every command has focused documentation, for example `sluss start --help` and
+`sluss destroy --help`. The equivalent `sluss help start` form also works.
+
+`sluss start` creates `agent/<name>` under
+`$SLUSS_WORKTREE_ROOT/<repository>/<name>`, mounts both the worktree and shared Git
+metadata, and removes the worktree if sandbox creation fails. Extra arguments are passed
+to `sbx create`. Calling it again starts an existing stopped sandbox.
+
+`sluss attach` enables the selected agent's remote interface automatically:
+
+- OpenCode starts `opencode web` on sandbox port 4096 and prints its published port.
+- Claude Code starts Remote Control for access through `claude.ai/code` and its mobile app.
+- GitHub Copilot CLI enables remote steering through GitHub.com and GitHub Mobile.
+
+OpenCode's automatic host port is loopback-only. Set `OPENCODE_SERVER_PASSWORD` and
+publish an explicit LAN-facing host address before exposing it beyond the host.
 
 ## Development
 

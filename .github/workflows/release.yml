@@ -1,15 +1,14 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   release:
+    if: ${{ false }} # Go binary releases are paused while sluss is a shell wrapper.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
