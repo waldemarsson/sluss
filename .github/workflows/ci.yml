@@ -29,5 +29,5 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /tmp/sluss-linux-amd64 ./cmd/sluss
       - name: Check installer
         run: |
-          bash -n scripts/install.sh
-          shellcheck scripts/install.sh
+          bash -n scripts/install.sh scripts/sluss
+          shellcheck scripts/install.sh scripts/sluss
