@@ -36,6 +36,17 @@ curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/ins
   SLUSS_REF=my-branch SLUSS_INSTALL_DIR=/usr/local/bin bash
 ```
 
+Once installed, update in place with:
+
+```bash
+sluss update
+```
+
+`sluss update` re-runs the installer against the directory the running script lives in, so
+it does not matter where sluss was installed. `SLUSS_REF` works here too. It refuses to run
+when `sluss` is a symlink, since that normally points into a checkout that `git pull` should
+update instead.
+
 Docker Sandboxes is a separate runtime prerequisite; follow
 [Docker's installation guide](https://docs.docker.com/ai/sandboxes/install/).
 
@@ -66,6 +77,7 @@ sluss-cd auth
 sluss attach auth
 sluss stop auth
 sluss destroy auth       # refuses dirty or unmerged work
+sluss update             # replace the installed script with the latest
 ```
 
 Every command has focused documentation, for example `sluss start --help` and

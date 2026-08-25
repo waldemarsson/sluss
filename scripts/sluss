@@ -17,6 +17,7 @@ Usage:
   sluss stop NAME...
   sluss destroy NAME [--force]
   sluss path NAME
+  sluss update
 
 Commands:
   start      Create or start a task sandbox without attaching
@@ -26,6 +27,7 @@ Commands:
   stop       Stop sandboxes while preserving their state
   destroy    Remove a sandbox, worktree, and task branch safely
   path       Print a task's host worktree path
+  update     Download and install the latest sluss script
 
 Run repository-specific commands from the primary checkout or one of its worktrees.
 Set SLUSS_APP_NAME, SLUSS_AGENT, or SLUSS_WORKTREE_ROOT to change defaults.
@@ -195,6 +197,29 @@ Examples:
   sluss path budget
   cd "$(sluss path budget)"
   code "$(sluss path budget)"
+EOF
+}
+
+update_usage() {
+	cat <<'EOF'
+Usage: sluss update
+
+Download the latest sluss script and replace the running one in place.
+
+The installer is fetched from the same repository, and it validates the script
+before anything is replaced. The new script is moved into place, so the running
+sluss keeps executing the version it started with. Set SLUSS_REF to install from
+a branch or tag other than main.
+
+Updating is refused when the running sluss is a symlink: that normally points
+into a checkout, which should be updated with git instead.
+
+Options:
+  -h, --help    Show this help
+
+Examples:
+  sluss update
+  SLUSS_REF=my-branch sluss update
 EOF
 }
 
@@ -553,6 +578,56 @@ print_path() {
 	worktree_path "$repo" "$1"
 }
 
+validate_bash_script() {
+	local first_line
+	IFS= read -r first_line < "$1" || return 1
+	[[ "$first_line" == '#!/usr/bin/env bash' ]] || return 1
+	command bash -n "$1" 2>/dev/null
+}
+
+update_script() {
+	if wants_help "$@"; then
+		update_usage
+		return
+	fi
+	if [[ $# -ne 0 ]]; then
+		update_usage
+		return 2
+	fi
+	if ! command -v curl >/dev/null 2>&1; then
+		fail 'curl is required to update sluss'
+		return
+	fi
+
+	local script_dir script_path
+	script_dir="$(command cd "$(command dirname "${BASH_SOURCE[0]}")" && command pwd)" || return
+	script_path="$script_dir/$(command basename "${BASH_SOURCE[0]}")"
+	if [[ -L "$script_path" ]]; then
+		fail "$script_path is a symlink; update the checkout it points to instead"
+		return
+	fi
+
+	local base_url installer status
+	base_url="${SLUSS_BASE_URL:-https://raw.githubusercontent.com/waldemarsson/sluss/${SLUSS_REF:-main}}"
+	installer="$(command mktemp)" || return
+	if ! command curl -fsSL "$base_url/scripts/install.sh" -o "$installer"; then
+		fail 'failed to download the sluss installer'
+		command rm -f "$installer"
+		return 1
+	fi
+	# The installer checks the script it downloads the same way; a captive portal or proxy
+	# can answer 200 with HTML, which curl -f will not reject.
+	if ! validate_bash_script "$installer"; then
+		fail 'downloaded sluss installer is not a valid bash script'
+		command rm -f "$installer"
+		return 1
+	fi
+	SLUSS_INSTALL_DIR="$script_dir" command bash "$installer"
+	status=$?
+	command rm -f "$installer"
+	return "$status"
+}
+
 if [[ $# -eq 0 ]]; then
 	usage
 	exit 2
@@ -568,6 +643,7 @@ case "$command_name" in
 	stop) stop_environment "$@" ;;
 	destroy | rm) destroy_environment "$@" ;;
 	path) print_path "$@" ;;
+	update) update_script "$@" ;;
 	help)
 		if [[ $# -eq 0 ]]; then
 			usage
@@ -580,6 +656,7 @@ case "$command_name" in
 				stop) stop_usage ;;
 				destroy | rm) destroy_usage ;;
 				path) path_usage ;;
+				update) update_usage ;;
 				*) usage >&2; exit 2 ;;
 			esac
 		fi
