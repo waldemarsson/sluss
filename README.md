@@ -60,6 +60,7 @@ Then, from the primary checkout:
 
 ```fish
 sluss start auth --kit ~/kits/omegapoint --publish 14096:4096
+sluss start review --agent claude
 sluss list
 sluss-cd auth
 sluss attach auth
@@ -75,14 +76,28 @@ Every command has focused documentation, for example `sluss start --help` and
 metadata, and removes the worktree if sandbox creation fails. Extra arguments are passed
 to `sbx create`. Calling it again starts an existing stopped sandbox.
 
-`sluss attach` enables the selected agent's remote interface automatically:
+`--agent` picks the agent for one task, overriding `SLUSS_AGENT`; it is consumed by sluss
+and never forwarded to `sbx create`. Every other argument after the name still is — pass `--`
+to end sluss's option scanning and forward the rest untouched. An existing sandbox keeps the
+agent it was created with, so `--agent` is ignored when restarting one.
+
+`sluss attach` reads the sandbox's agent back from `sbx ls --json` — nothing is persisted
+host-side — and enables that agent's remote interface automatically:
 
 - OpenCode starts `opencode web` on sandbox port 4096 and prints its published port.
 - Claude Code starts Remote Control for access through `claude.ai/code` and its mobile app.
 - GitHub Copilot CLI enables remote steering through GitHub.com and GitHub Mobile.
 
+Because the agent comes from sbx, `sluss attach` needs no worktree context and runs from any
+directory. The other repository commands still expect the primary checkout or one of its
+worktrees.
+
 OpenCode's automatic host port is loopback-only. Set `OPENCODE_SERVER_PASSWORD` and
 publish an explicit LAN-facing host address before exposing it beyond the host.
+
+Earlier versions recorded each sandbox's agent in
+`$SLUSS_WORKTREE_ROOT/<repository>/.sluss/`. Nothing reads or writes that directory any more;
+delete it if one is left over.
 
 ## Development
 

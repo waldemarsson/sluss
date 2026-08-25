@@ -10,7 +10,7 @@ usage() {
 sluss - lightweight sbx and Git worktree lifecycle
 
 Usage:
-  sluss start NAME [SBX_CREATE_ARGS...]
+  sluss start NAME [--agent AGENT] [SBX_CREATE_ARGS...]
   sluss list
   sluss attach NAME [AGENT_ARGS...]
   sluss exec NAME [COMMAND...]
@@ -36,14 +36,15 @@ EOF
 
 start_usage() {
 	cat <<'EOF'
-Usage: sluss start NAME [SBX_CREATE_ARGS...]
+Usage: sluss start NAME [--agent AGENT] [SBX_CREATE_ARGS...]
 
 Create or start a task sandbox without attaching to its agent.
 
 On first use, this command:
   1. Creates branch agent/NAME from the primary checkout's current HEAD.
   2. Creates $SLUSS_WORKTREE_ROOT/<repository>/NAME as a Git worktree.
-  3. Creates an sbx sandbox named NAME using $SLUSS_AGENT (default: opencode).
+  3. Creates an sbx sandbox named NAME using --agent, else $SLUSS_AGENT,
+     else opencode.
   4. Mounts the worktree and the repository's shared Git metadata writable.
 
 For OpenCode, sandbox port 4096 is published to an automatically selected
@@ -52,15 +53,20 @@ loopback host port unless SBX_CREATE_ARGS already publish port 4096.
 If the worktree already exists, the command starts the sandbox if necessary.
 Use "sluss attach NAME" when you want to open the agent interactively.
 
-All arguments after NAME are passed to "sbx create" on first creation. They
-are ignored on subsequent starts because sbx creation settings are immutable.
+All arguments after NAME except --agent are passed to "sbx create" on first
+creation. They are ignored on subsequent starts because sbx creation settings
+are immutable, and so is --agent: an existing sandbox keeps the agent it was
+created with. --agent is consumed by sluss and never reaches sbx; pass -- to
+end sluss's own option scanning and forward the rest untouched.
 
 Options:
-  -h, --help    Show this help
+  --agent AGENT  Agent to create the sandbox with, overriding $SLUSS_AGENT
+  -h, --help     Show this help
 
 Examples:
   sluss start budget
-  sluss start budget --kit ~/kits/dotnet-svelte
+  sluss start budget --agent claude
+  sluss start budget --agent copilot --kit ~/kits/dotnet-svelte
   sluss start budget --cpus 4 --memory 8g --publish 5173
 
 Safety:
@@ -92,9 +98,12 @@ Start the named sandbox and enable its remote interface:
   claude    Enable sbx support and start Claude Code Remote Control.
   copilot   Start Copilot CLI with GitHub remote steering enabled.
 
-Other agents attach normally with "sbx run". The agent selected when the
-environment was created is remembered even if SLUSS_AGENT later changes.
-Extra arguments are passed to the agent.
+Other agents attach normally with "sbx run". The agent is read back from
+"sbx ls --json", so the agent chosen at creation is used even if SLUSS_AGENT
+later changes. Extra arguments are passed to the agent.
+
+Unlike the other repository commands, this one needs no worktree context and
+runs from any directory.
 
 Alias: sluss run
 
@@ -222,19 +231,54 @@ worktree_path() {
 	printf '%s/%s/%s\n' "$worktree_root" "$(repo_name "$1")" "$2"
 }
 
-agent_file() {
-	printf '%s/%s/.sluss/%s.agent\n' "$worktree_root" "$(repo_name "$1")" "$2"
+# sbx is the source of truth for which agent a sandbox was created with, so nothing is
+# persisted host-side. Parsed with awk rather than jq, which is not preinstalled on macOS
+# or most Linux distributions. Only "name" and "agent" keys are considered, in document
+# order: sbx emits agent after name within each sandbox object. Record accumulation drops
+# newlines, so a key split across lines still matches. sbx never emits a quote or backslash
+# in these two values, so no unescaping is needed. The wanted name comes through the
+# environment because awk -v processes backslash escapes in its value.
+extract_agent() {
+	SLUSS_WANTED_NAME="$1" command awk '
+		BEGIN { want = ENVIRON["SLUSS_WANTED_NAME"] }
+		{ json = json $0 }
+		END {
+			while (match(json, /"(name|agent)"[ \t]*:[ \t]*"[^"]*"/)) {
+				pair = substr(json, RSTART, RLENGTH)
+				json = substr(json, RSTART + RLENGTH)
+				key = pair
+				sub(/^"/, "", key)
+				sub(/".*/, "", key)
+				value = pair
+				sub(/^[^:]*:[ \t]*"/, "", value)
+				sub(/"$/, "", value)
+				if (key == "name")
+					seen = value
+				else if (seen == want) {
+					print value
+					exit
+				}
+			}
+		}
+	'
 }
 
+# A failed sbx call is an error, not a missing agent: guessing there would report the wrong
+# cause exactly when the source of truth is unreachable. Only a successful listing that names
+# no agent falls back to $SLUSS_AGENT, and it says so.
 environment_agent() {
-	local file selected_agent
-	file="$(agent_file "$1" "$2")"
-	if [[ -f "$file" ]]; then
-		IFS= read -r selected_agent < "$file"
-		printf '%s\n' "$selected_agent"
-	else
-		printf '%s\n' "$agent"
+	local listing selected_agent
+	if ! listing="$(run_sbx ls --json)"; then
+		fail "sbx ls failed; cannot determine the agent for $1"
+		return 1
 	fi
+	selected_agent="$(printf '%s\n' "$listing" | extract_agent "$1")"
+	if [[ -n "$selected_agent" ]]; then
+		printf '%s\n' "$selected_agent"
+		return
+	fi
+	printf 'warning: sbx reported no agent for %s; assuming %s\n' "$1" "$agent" >&2
+	printf '%s\n' "$agent"
 }
 
 publishes_opencode_port() {
@@ -272,6 +316,39 @@ start_environment() {
 	shift
 	require_name "$name" || return
 
+	# --agent is consumed here; everything else is forwarded to sbx create verbatim.
+	local selected_agent="$agent"
+	local -a create_args=()
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--)
+				shift
+				create_args+=("$@")
+				break
+				;;
+			--agent)
+				if [[ $# -lt 2 ]]; then
+					fail '--agent requires an agent name'
+					return 2
+				fi
+				selected_agent="$2"
+				shift 2
+				;;
+			--agent=*)
+				selected_agent="${1#--agent=}"
+				if [[ -z "$selected_agent" ]]; then
+					fail '--agent requires an agent name'
+					return 2
+				fi
+				shift
+				;;
+			*)
+				create_args+=("$1")
+				shift
+				;;
+		esac
+	done
+
 	local repo
 	repo="$(repo_root)" || {
 		fail 'run sluss start inside a Git repository'
@@ -300,10 +377,12 @@ start_environment() {
 	command git -C "$repo" worktree add -b "$branch" "$worktree" || return
 
 	local -a publish_args=()
-	if [[ "$agent" == 'opencode' ]] && ! publishes_opencode_port "$@"; then
+	if [[ "$selected_agent" == 'opencode' ]] &&
+		! publishes_opencode_port ${create_args[@]+"${create_args[@]}"}; then
 		publish_args=(--publish 4096)
 	fi
-	run_sbx create --name "$name" "${publish_args[@]}" "$@" "$agent" "$worktree" "$git_dir"
+	run_sbx create --name "$name" ${publish_args[@]+"${publish_args[@]}"} \
+		${create_args[@]+"${create_args[@]}"} "$selected_agent" "$worktree" "$git_dir"
 	local create_status=$?
 	if [[ $create_status -ne 0 ]]; then
 		printf 'sbx creation failed; removing worktree %s\n' "$worktree" >&2
@@ -311,12 +390,7 @@ start_environment() {
 		command git -C "$repo" branch -D "$branch" >/dev/null
 		return "$create_status"
 	fi
-	local metadata_file
-	metadata_file="$(agent_file "$repo" "$name")"
-	command mkdir -p "$(command dirname "$metadata_file")"
-	printf '%s\n' "$agent" > "$metadata_file"
-
-	printf 'Created %s on %s at %s\n' "$name" "$branch" "$worktree"
+	printf 'Created %s on %s at %s using %s\n' "$name" "$branch" "$worktree" "$selected_agent"
 }
 
 list_environments() {
@@ -346,12 +420,8 @@ attach_environment() {
 	fi
 	local name="$1"
 	shift
-	local repo selected_agent
-	repo="$(repo_root)" || {
-		fail 'run sluss attach inside the repository or one of its worktrees'
-		return 2
-	}
-	selected_agent="$(environment_agent "$repo" "$name")"
+	local selected_agent
+	selected_agent="$(environment_agent "$name")" || return
 
 	case "$selected_agent" in
 		opencode)
@@ -370,7 +440,7 @@ attach_environment() {
 		run_sbx ports "$name"
 		;;
 		claude)
-		command sbx settings set claude.remoteControl true || return
+		run_sbx settings set claude.remoteControl true || return
 		run_sbx run --name "$name" -- --remote-control "$@"
 		;;
 		copilot)
@@ -464,7 +534,6 @@ destroy_environment() {
 		command git -C "$repo" worktree remove "$worktree" || return
 		command git -C "$repo" branch -d "$branch"
 	fi
-	command rm -f "$(agent_file "$repo" "$name")"
 }
 
 print_path() {
