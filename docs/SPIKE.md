@@ -32,6 +32,41 @@ sbx --app-name $APP reset --force
 
 ---
 
+## Observed CLI surface
+
+Recorded 2026-08-25 from a macOS host while building `scripts/sluss`. **The sbx version was
+not captured**, so treat these as true of that host on that date and re-check before relying
+on them. `SPIKE-RUNBOOK.md` asks for the real syntax to be written down; this is that.
+
+`sbx --help` lists: `completion cp create daemon diagnose env exec help kit login logout ls
+mcp policy ports prune reset rm run secret setup skills stop template tui version`. Its only
+flags are `-D/--debug` and `-h/--help`.
+
+Two commands work but are **absent from that list**: `sbx inspect SANDBOX_NAME [--json]`
+("agent, kits, state, auth mode, workspace, network policy, secrets, published ports, active
+sessions") and `sbx settings {get,list,set,unset}`. `--app-name` is likewise accepted but
+undocumented there. Do not treat `sbx --help` as the full surface.
+
+`sbx ls` is documented as listing "all sandboxes with their agent, status, published ports,
+and workspace". The flag is `--json`; **`--format json` is rejected** as an unknown flag. The
+shape, which `scripts/sluss` parses to recover a sandbox's agent:
+
+```json
+{ "sandboxes": [ { "name": "pergola", "id": "50fe619b-…", "agent": "opencode",
+    "status": "running",
+    "ports": [ { "host_ip": "127.0.0.1", "host_port": 49155,
+                 "sandbox_port": 4096, "protocol": "tcp" } ],
+    "workspaces": [ "/Users/marwal/src/worktrees/pergola/pergola",
+                    "/Users/marwal/code/private/pergola/.git" ] } ] }
+```
+
+`agent` follows `name` within each object, and a stopped sandbox simply omits `ports` —
+consistent with assumption 4's note that no mappings are reported while stopped. `sluss`
+depends on both the key names and that ordering, so this block is load-bearing for
+`scripts/sluss`, not just reference material.
+
+---
+
 ## 1. Is the workspace mount bidirectional? ⚠️ LOAD-BEARING
 
 **Why it matters:** the entire worktree model in SPEC.md §6 depends on the host seeing sandbox changes live.
@@ -149,6 +184,21 @@ Also check whether sandbox names collide across app-names, and whether a second 
 **If leaky:** profiles degrade to convention. Still useful — the microVM does the heavy security lifting — but say so plainly in the docs rather than implying a guarantee.
 
 **Answer:**
+
+**Partial — the flag is real; the secret store is still untested.** Probed on the macOS host
+while building `scripts/sluss`, not as a deliberate run of this assumption, so treat it as
+evidence rather than a verdict.
+
+`--app-name` is accepted as a top-level flag (`sbx --app-name personal settings get …`
+succeeded rather than erroring on an unknown flag) even though it appears **nowhere** in
+`sbx --help`'s flag list — see the CLI surface notes above. Invoking a previously unused
+app-name started a *separate* `sandboxd` daemon and ran the first-run setup/import banner
+before answering, and `sbx settings --help` states the daemon owns settings — so at minimum
+the daemon, and therefore settings, are per-scope.
+
+Still to do for a real answer to this assumption: the `secret set` / `secret ls` cross-scope
+check as written above, whether sandbox names collide across app-names, and whether a second
+`login` is genuinely required.
 
 ---
 
