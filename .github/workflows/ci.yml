@@ -27,7 +27,9 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/sluss-darwin-arm64 ./cmd/sluss
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /tmp/sluss-linux-amd64 ./cmd/sluss
-      - name: Check installer
+      - name: Check shell scripts
         run: |
-          bash -n scripts/install.sh scripts/sluss
-          shellcheck scripts/install.sh scripts/sluss
+          bash -n scripts/install.sh scripts/sluss scripts/test-sluss
+          shellcheck scripts/install.sh scripts/sluss scripts/test-sluss
+      - name: Test shell scripts
+        run: ./scripts/test-sluss

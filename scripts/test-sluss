@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+# Black-box tests for scripts/sluss.
+#
+# sbx needs hardware virtualisation and its own daemon, so it cannot run in the devcontainer
+# (AGENTS.md "Where things run"). These tests stub it: a fake sbx on PATH records the argv it
+# was called with and serves a fixture for "ls --json". Assertions are made against that
+# recording, so the whole suite runs anywhere git and bash do.
+
+set -u
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+sluss="$script_dir/sluss"
+tests_run=0
+tests_failed=0
+original_path="$PATH"
+
+# The shape sbx emits, including the nested ports objects whose host_ip/host_port keys must not
+# be mistaken for a sandbox name, and the gh / gh-remote pair that a substring match would
+# confuse.
+fixture='{
+  "sandboxes": [
+    { "name": "web", "id": "d1e0", "agent": "opencode", "status": "stopped",
+      "workspaces": ["/src/worktrees/repo/web"] },
+    { "name": "auth", "id": "50fe", "agent": "claude", "status": "running",
+      "ports": [{"host_ip":"127.0.0.1","host_port":49155,"sandbox_port":4096,"protocol":"tcp"}] },
+    { "name": "gh", "id": "aaaa", "agent": "copilot", "status": "running" },
+    { "name": "gh-remote", "id": "bbbb", "agent": "cursor", "status": "running" },
+    { "name": "a\\tb", "id": "cccc", "agent": "escapetest", "status": "running" }
+  ]
+}'
+
+setup() {
+	work="$(mktemp -d)"
+	mkdir -p "$work/bin" "$work/worktrees"
+	printf '%s\n' "$fixture" > "$work/fixture.json"
+	cat > "$work/bin/sbx" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >> "$SBX_LOG"
+case " $* " in
+	*" --json "*) cat "$SBX_FIXTURE" ;;
+esac
+exit "${SBX_EXIT:-0}"
+STUB
+	chmod +x "$work/bin/sbx"
+
+	git init -q "$work/repo"
+	git -C "$work/repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+
+	export PATH="$work/bin:$original_path"
+	export SLUSS_WORKTREE_ROOT="$work/worktrees"
+	export SBX_LOG="$work/sbx.log"
+	export SBX_FIXTURE="$work/fixture.json"
+	export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t
+	export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+	unset SLUSS_AGENT SLUSS_APP_NAME SBX_EXIT
+	: > "$SBX_LOG"
+}
+
+teardown() {
+	rm -rf "$work"
+}
+
+# Run sluss from inside the fixture repo, discarding its output; the sbx log is the assertion
+# surface. Sets `status` and `stderr` for the caller.
+sluss_run() {
+	stderr="$(cd "$work/repo" && bash "$sluss" "$@" 2>&1 >/dev/null)"
+	status=$?
+}
+
+fail_test() {
+	tests_failed=$((tests_failed + 1))
+	printf 'FAIL %s\n' "$1" >&2
+	printf '     expected: %s\n' "$2" >&2
+	printf '     actual:   %s\n' "$3" >&2
+}
+
+# Assert that some recorded sbx invocation is exactly $2.
+assert_sbx() {
+	tests_run=$((tests_run + 1))
+	if ! grep -qxF -e "$2" "$SBX_LOG"; then
+		fail_test "$1" "$2" "$(tr '\n' '|' < "$SBX_LOG")"
+	fi
+}
+
+assert_no_sbx_match() {
+	tests_run=$((tests_run + 1))
+	if grep -qF -e "$2" "$SBX_LOG"; then
+		fail_test "$1" "no invocation containing '$2'" "$(tr '\n' '|' < "$SBX_LOG")"
+	fi
+}
+
+assert_status() {
+	tests_run=$((tests_run + 1))
+	if [[ "$status" != "$2" ]]; then
+		fail_test "$1" "exit $2" "exit $status"
+	fi
+}
+
+assert_stderr() {
+	tests_run=$((tests_run + 1))
+	if [[ "$stderr" != *"$2"* ]]; then
+		fail_test "$1" "stderr containing '$2'" "${stderr:-<empty>}"
+	fi
+}
+
+# --- start: agent resolution and argument forwarding -------------------------
+
+setup
+sluss_run start web
+assert_sbx 'start defaults to opencode and publishes 4096' \
+	"create --name web --publish 4096 opencode $SLUSS_WORKTREE_ROOT/repo/web $work/repo/.git"
+teardown
+
+setup
+sluss_run start web --agent claude
+assert_sbx 'start --agent selects the agent and skips the opencode port' \
+	"create --name web claude $SLUSS_WORKTREE_ROOT/repo/web $work/repo/.git"
+teardown
+
+setup
+sluss_run start web --kit /k --agent=copilot --cpus 4
+assert_sbx 'start --agent= is consumed mid-list and forwarding order is preserved' \
+	"create --name web --kit /k --cpus 4 copilot $SLUSS_WORKTREE_ROOT/repo/web $work/repo/.git"
+teardown
+
+setup
+SLUSS_AGENT=claude sluss_run start web
+assert_sbx 'start inherits SLUSS_AGENT' \
+	"create --name web claude $SLUSS_WORKTREE_ROOT/repo/web $work/repo/.git"
+teardown
+
+# The regression this guards: keying the publish default off the global agent instead of the
+# resolved one silently drops OpenCode's port.
+setup
+SLUSS_AGENT=claude sluss_run start web --agent opencode
+assert_sbx 'start --agent overrides SLUSS_AGENT and restores the opencode port' \
+	"create --name web --publish 4096 opencode $SLUSS_WORKTREE_ROOT/repo/web $work/repo/.git"
+teardown
+
+setup
+sluss_run start web --publish 14096:4096
+assert_sbx 'start does not double-publish 4096 when it is already published' \
+	"create --name web --publish 14096:4096 opencode $SLUSS_WORKTREE_ROOT/repo/web $work/repo/.git"
+teardown
+
+setup
+sluss_run start web -- --agent literal
+assert_sbx 'start -- ends sluss option scanning and forwards the rest' \
+	"create --name web --publish 4096 --agent literal opencode $SLUSS_WORKTREE_ROOT/repo/web $work/repo/.git"
+teardown
+
+setup
+sluss_run start web --agent
+assert_status 'start rejects a bare --agent' 2
+assert_stderr 'start explains a bare --agent' '--agent requires an agent name'
+assert_no_sbx_match 'start creates nothing when --agent is malformed' 'create'
+teardown
+
+# --- attach: agent read back from sbx ----------------------------------------
+
+setup
+sluss_run attach web
+assert_sbx 'attach starts OpenCode Web for an opencode sandbox' 'ports web'
+teardown
+
+setup
+sluss_run attach auth
+assert_sbx 'attach enables Claude remote control' 'settings set claude.remoteControl true'
+assert_sbx 'attach runs Claude with --remote-control' 'run --name auth -- --remote-control'
+teardown
+
+setup
+sluss_run attach gh
+assert_sbx 'attach runs Copilot with --remote' 'run --name gh -- --remote'
+teardown
+
+# gh is a prefix of gh-remote; a substring match would attach the wrong agent.
+setup
+sluss_run attach gh-remote
+assert_sbx 'attach matches sandbox names exactly, not by prefix' 'run --name gh-remote --'
+teardown
+
+setup
+sluss_run attach missing
+assert_stderr 'attach warns when sbx lists no agent' 'sbx reported no agent for missing'
+assert_sbx 'attach falls back to the default agent' 'ports missing'
+teardown
+
+# A failed sbx call must not be reported as a missing agent.
+setup
+SBX_EXIT=1 sluss_run attach auth
+assert_status 'attach fails when sbx ls fails' 1
+assert_stderr 'attach blames sbx, not the agent, when the listing fails' 'sbx ls failed'
+assert_no_sbx_match 'attach runs no agent when the listing fails' 'run --name'
+teardown
+
+setup
+SLUSS_APP_NAME=work sluss_run attach auth
+assert_sbx 'attach scopes the listing by app-name' '--app-name work ls --json'
+assert_sbx 'attach scopes the settings write by app-name' \
+	'--app-name work settings set claude.remoteControl true'
+assert_sbx 'attach scopes the agent run by app-name' \
+	'--app-name work run --name auth -- --remote-control'
+teardown
+
+# awk -v backslash-processes its value, so passing the name that way would collapse the
+# fixture's \\ to \ and miss. Asserting the dispatch (not merely a warning) is what makes this
+# discriminate: with -v the lookup misses and falls back to opencode instead.
+setup
+sluss_run attach 'a\\tb'
+assert_sbx 'attach passes a backslashed name to awk unprocessed' 'run --name a\\tb --'
+assert_no_sbx_match 'attach does not fall back when the backslashed name matches' 'ports a'
+teardown
+
+# --- destroy: still cleans up after the metadata file was dropped ------------
+
+setup
+sluss_run start web
+sluss_run destroy web
+assert_status 'destroy succeeds on a clean, merged worktree' 0
+assert_sbx 'destroy removes the sandbox' 'rm --force web'
+tests_run=$((tests_run + 1))
+if [[ -d "$SLUSS_WORKTREE_ROOT/repo/web" ]]; then
+	fail_test 'destroy removes the worktree' 'worktree gone' 'worktree still present'
+fi
+teardown
+
+setup
+sluss_run start web
+(cd "$SLUSS_WORKTREE_ROOT/repo/web" && : > new && git add new && git commit -qm work)
+sluss_run destroy web
+assert_status 'destroy refuses unmerged work' 1
+assert_stderr 'destroy explains the refusal' 'not merged'
+teardown
+
+# --- summary -----------------------------------------------------------------
+
+if [[ $tests_failed -eq 0 ]]; then
+	printf '%d assertions passed\n' "$tests_run"
+else
+	printf '\n%d of %d assertions failed\n' "$tests_failed" "$tests_run" >&2
+	exit 1
+fi

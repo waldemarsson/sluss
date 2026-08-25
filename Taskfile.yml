@@ -67,14 +67,20 @@ tasks:
     cmds:
       - go test ./...
 
+  test:script:
+    desc: Black-box tests for scripts/sluss against a stubbed sbx
+    cmds:
+      - ./scripts/test-sluss
+
   check:
     desc: What must pass before finishing a change (AGENTS.md)
     cmds:
       - task: fmt:check
       - task: vet
       - task: test
-      - bash -n scripts/install.sh scripts/sluss
-      - shellcheck scripts/install.sh scripts/sluss
+      - bash -n scripts/install.sh scripts/sluss scripts/test-sluss
+      - shellcheck scripts/install.sh scripts/sluss scripts/test-sluss
+      - task: test:script
 
   clean:
     cmds:
