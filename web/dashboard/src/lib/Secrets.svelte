@@ -1,13 +1,19 @@
-<script>
+<script lang="ts">
+	import type { ApiError, SecretList } from '#lib/api.js';
+
+	interface Props {
+		scopes?: string[];
+	}
+
 	// Write-only by design: names are listed, values are sent and never read back.
 	// Nothing here ever populates a field with an existing value, because sluss
 	// cannot see one.
-	let { scopes = [] } = $props();
+	let { scopes = [] }: Props = $props();
 
 	// Empty means "whichever scope is first"; picking one in the select fills it in.
 	let chosen = $state('');
 	let scope = $derived(chosen || scopes[0] || '');
-	let names = $state([]);
+	let names = $state<string[]>([]);
 	let error = $state('');
 	let busy = $state(false);
 	let draft = $state({ name: '', value: '' });
@@ -18,11 +24,11 @@
 		if (scope) refresh(scope);
 	});
 
-	async function refresh(forScope) {
+	async function refresh(forScope: string) {
 		error = '';
 		try {
 			const response = await fetch(`/api/secrets/${forScope}`);
-			const body = await response.json();
+			const body: SecretList & ApiError = await response.json();
 			if (!response.ok) {
 				error = body.error ?? `failed with ${response.status}`;
 				names = [];
@@ -34,13 +40,13 @@
 		}
 	}
 
-	async function send(method, name, value) {
+	async function send(method: string, name: string, value: string | undefined) {
 		busy = true;
 		error = '';
 		try {
 			const response = await fetch(`/api/secrets/${scope}/${name}`, { method, body: value });
 			if (!response.ok) {
-				const body = await response.json().catch(() => ({}));
+				const body: ApiError = await response.json().catch(() => ({}));
 				error = body.error ?? `failed with ${response.status}`;
 			}
 		} catch (problem) {
@@ -51,7 +57,7 @@
 		}
 	}
 
-	async function set(event) {
+	async function set(event: SubmitEvent) {
 		event.preventDefault();
 		await send('PUT', draft.name, draft.value);
 		// The value leaves the browser and is not kept anywhere on this page.

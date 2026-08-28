@@ -276,11 +276,48 @@ carry the risk: two components, one prerendered client-only route, no `load`, no
 server routes — almost none of SvelteKit 3's breaking changes have anything here to break.
 
 **What it cost:** `svelte.config.js` is gone (SvelteKit 3 takes its config through the Vite plugin),
-`$lib` became `#lib` backed by the `imports` map in `package.json`, and `jsconfig.json` extends
-`$app/tsconfig` and supplies the `include`/`exclude` that `svelte-kit sync` used to generate.
+`$lib` became `#lib` backed by the `imports` map in `package.json`, and `jsconfig.json` (now
+`tsconfig.json`, see D18) extends `$app/tsconfig` and supplies the `include`/`exclude` that
+`svelte-kit sync` used to generate.
 
 **Known noise:** the build prints `Reading config.kit inside adapters is deprecated` from
 adapter-static, and the browser test run warns about `transformIndexHtml` from Vitest's own plugin.
 Both are upstream prerelease drift, not dashboard code.
 
 **Revisit when:** SvelteKit 3.0.0 goes stable — swap both pins for carets and drop this note.
+
+---
+
+## D18 — The dashboard is TypeScript, like the other two frontends
+
+**Chosen:** the dashboard is TypeScript — `tsconfig.json`, `vite.config.ts`, `lang="ts"` on every
+component — with the API payloads hand-mirrored from the Go structs in `web/dashboard/src/lib/api.ts`.
+
+**Why:** it was never a decision. No ADR chose plain JS and neither the `gui-control-plane` spec nor
+its plan mentions the language; it was the scaffold default, carried forward. Both sibling frontends
+went the other way — babytabs is 63 `.ts` and 60 `.svelte` with zero `.js`, homehub 36 and 25 — and
+`jsconfig.json` was visibly a JS-ified copy of babytabs' `tsconfig.json`, same comments and all,
+diverging only in the filename, a missing `src/**/*.ts`, and a `checkJs: false` block. So this
+restores a convention rather than introducing one, and the frontend is about to grow past the point
+where an untyped `JSON.parse` result threading through several pages stays cheap.
+
+**Why now rather than later:** TypeScript 6 is already a devDependency — D17 pulled it in as a hard
+peer of SvelteKit 3 — and `lang="ts"` compiles and type-checks on this stack with no config change,
+so the migration was file-by-file with `npm run check` green throughout. The cost only rises with
+the file count.
+
+**What it cost:** `noUncheckedIndexedAccess` (matching babytabs) does not narrow on a
+`list.length > 0` guard, so one index access in `Kits.svelte` binds the element first. That is the
+only behavioral edit in the migration; everything else is an annotation or a rename.
+
+**Rejected:** `checkJs: true` plus JSDoc, which the old `jsconfig.json` comment prescribed. Same
+checking, more verbose, and it would have made a third convention across three frontends.
+
+**Not generated:** `api.ts` is written by hand. The API is Go in this same repo, so codegen would
+cost more than nine small types are worth. When a mirrored struct changes, `npm run check` finds
+every use — it catches the misuse, not the drift, so change both sides together.
+
+**Still open:** eslint and prettier. Both siblings have them and sluss has neither.
+
+**Amends:** D17's note that `jsconfig.json` supplies the `include`/`exclude` — that file is now
+`tsconfig.json`; everything else in D17 stands.

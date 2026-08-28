@@ -23,7 +23,7 @@ export default defineConfig({
 				extends: true,
 				test: {
 					name: 'unit',
-					include: ['src/**/*.test.js'],
+					include: ['src/**/*.test.{js,ts}'],
 					exclude: ['src/lib/**', 'src/routes/**'],
 					environment: 'node'
 					// The dashboard is all components so far — every .svelte file talks to the
@@ -36,7 +36,7 @@ export default defineConfig({
 				extends: true,
 				test: {
 					name: 'component',
-					include: ['src/lib/**/*.test.js', 'src/routes/**/*.test.js'],
+					include: ['src/lib/**/*.test.{js,ts}', 'src/routes/**/*.test.{js,ts}'],
 					// A real browser, not jsdom: these components are driven by fetch and by
 					// form-control state (bind:value on a <select> and a <textarea>), and
 					// asserting those against a DOM simulation would be testing the simulation.

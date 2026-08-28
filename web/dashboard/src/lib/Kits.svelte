@@ -1,10 +1,11 @@
-<script>
+<script lang="ts">
 	import { onMount } from 'svelte';
+	import type { ApiError, GitStatus, Kit, KitList } from '#lib/api.js';
 
 	// spec.yaml is plain text here and everywhere else in sluss: nothing parses it,
 	// nothing formats it, and sbx is the validator. What is typed is what is saved.
-	let list = $state([]);
-	let status = $state({ repository: false, dirty: false, detail: '' });
+	let list = $state<Kit[]>([]);
+	let status = $state<GitStatus>({ repository: false, dirty: false, detail: '' });
 	let selected = $state('');
 	let spec = $state('');
 	let error = $state('');
@@ -21,20 +22,23 @@
 	async function refreshList() {
 		try {
 			const response = await fetch('/api/kits');
-			const body = await response.json();
+			const body: KitList & ApiError = await response.json();
 			if (!response.ok) {
 				error = body.error ?? `failed with ${response.status}`;
 				return;
 			}
 			list = body.kits ?? [];
 			status = body.status ?? status;
-			if (!selected && list.length > 0) selected = list[0].name;
+			// `list.length > 0` would not narrow the index access under
+			// noUncheckedIndexedAccess; binding the element does.
+			const first = list[0];
+			if (!selected && first) selected = first.name;
 		} catch (problem) {
 			error = String(problem);
 		}
 	}
 
-	async function loadSpec(name) {
+	async function loadSpec(name: string) {
 		error = '';
 		try {
 			const response = await fetch(`/api/kits/${name}/spec`);
@@ -52,7 +56,7 @@
 		try {
 			const response = await fetch(`/api/kits/${selected}/spec`, { method: 'PUT', body: spec });
 			if (!response.ok) {
-				const body = await response.json().catch(() => ({}));
+				const body: ApiError = await response.json().catch(() => ({}));
 				error = body.error ?? `failed with ${response.status}`;
 			}
 		} catch (problem) {
