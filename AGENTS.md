@@ -86,6 +86,11 @@ read path must tolerate a missing sandbox or a vanished worktree and report it r
 
 - Small changes. One concern per commit.
 - Run `task check` (gofmt + `go vet` + `go test` + shellcheck + the script's black-box tests) before finishing.
+- Dashboard work has its own gates, deliberately kept out of `task check` so a Go change does
+  not pay for a browser launch: `task check:web` (svelte-check) and `task test:web`
+  (Vitest `unit` on node, `component` in a real headless Chromium). CI runs both. The
+  component project needs Chromium in `~/.cache/ms-playwright`; the devcontainer installs it
+  in postCreate, so on a fresh container run `task test:web` only after the rebuild finishes.
 - When a spec detail is ambiguous, ask rather than guessing. This spec was iterated a lot; the gaps that remain are usually genuine uncertainty, not oversight.
 - If you discover sbx behaves differently to what the spec assumes, **stop and report it**. Several design decisions rest on sbx's actual behaviour; a wrong assumption should change the spec, not get worked around in code.
 - The plan's tasks are the unit of work: one task, one green gate, one commit. Don't gold-plate a

@@ -12,6 +12,9 @@
 /web/dashboard/build/*
 !/web/dashboard/build/.gitkeep
 
+# Vitest
+/web/dashboard/coverage/
+
 # Editors / OS
 .DS_Store
 .idea/

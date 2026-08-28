@@ -76,6 +76,19 @@ tasks:
     cmds:
       - go test ./...
 
+  check:web:
+    desc: svelte-check over the dashboard
+    dir: web/dashboard
+    cmds:
+      - npm run check
+
+  test:web:
+    desc: Dashboard unit + component tests (component tests need Chromium)
+    dir: web/dashboard
+    cmds:
+      - npm run test:unit
+      - npm run test:component
+
   test:script:
     desc: Black-box tests for scripts/sluss against a stubbed sbx
     cmds:
