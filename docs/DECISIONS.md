@@ -260,3 +260,27 @@ by searching `PATH`.
 
 **Cost accepted:** one more name to know, and `cmd/slussd` no longer matches the `cmd/sluss` path
 the earlier spec named.
+
+---
+
+## D17 — The dashboard runs SvelteKit 3 before it is released
+
+**Chosen:** the dashboard pins `@sveltejs/kit@3.0.0-next.25` and `@sveltejs/adapter-static@4.0.0-next.4`
+— exact pins, not ranges, because a caret over a prerelease silently widens to the stable release —
+and with them Vite 8, `@sveltejs/vite-plugin-svelte` 7, TypeScript 6 and Node ≥ 22.17, which
+SvelteKit 3 requires as hard peers.
+
+**Why:** babytabs is already on the same prerelease line, and keeping the two frontends on one
+major avoids learning the migration twice. The dashboard is also the cheapest possible place to
+carry the risk: two components, one prerendered client-only route, no `load`, no form actions, no
+server routes — almost none of SvelteKit 3's breaking changes have anything here to break.
+
+**What it cost:** `svelte.config.js` is gone (SvelteKit 3 takes its config through the Vite plugin),
+`$lib` became `#lib` backed by the `imports` map in `package.json`, and `jsconfig.json` extends
+`$app/tsconfig` and supplies the `include`/`exclude` that `svelte-kit sync` used to generate.
+
+**Known noise:** the build prints `Reading config.kit inside adapters is deprecated` from
+adapter-static, and the browser test run warns about `transformIndexHtml` from Vitest's own plugin.
+Both are upstream prerelease drift, not dashboard code.
+
+**Revisit when:** SvelteKit 3.0.0 goes stable — swap both pins for carets and drop this note.
