@@ -46,7 +46,7 @@ jobs:
       - name: Install dashboard dependencies
         working-directory: web/dashboard
         run: npm ci
-      # The component project renders into a real Chromium (see web/dashboard/vite.config.js).
+      # The component project renders into a real Chromium (see web/dashboard/vite.config.ts).
       # `--with-deps` pulls the system libraries the browser needs, which the GitHub runner image
       # does not carry by default; without it the run fails at browser launch, not an assertion.
       # The devcontainer deliberately does the opposite split — libraries baked into the image,

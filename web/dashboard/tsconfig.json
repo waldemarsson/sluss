@@ -1,0 +1,27 @@
+{
+	"extends": "$app/tsconfig",
+	"compilerOptions": {
+		// Everything else (allowJs/checkJs, esModuleInterop, resolveJsonModule, skipLibCheck,
+		// moduleResolution, verbatimModuleSyntax, isolatedModules, ...) comes from the generated
+		// `$app/tsconfig` (node_modules/$app/tsconfig.json) — only what this repo adds on top
+		// lives here. Matches the babytabs frontend, which is the same file minus this comment.
+		"sourceMap": true,
+		"strict": true,
+		"noUncheckedIndexedAccess": true
+	},
+	// `$app/tsconfig` ships no include/exclude of its own — every consumer's file layout differs
+	// — so this supplies what `svelte-kit sync` used to bake into `.svelte-kit/tsconfig.json`
+	// before SvelteKit 3, with paths relative to this file and trimmed to what exists here.
+	"include": [
+		".svelte-kit/ambient.d.ts",
+		".svelte-kit/env.d.ts",
+		".svelte-kit/non-ambient.d.ts",
+		".svelte-kit/types/**/$types.d.ts",
+		"vite.config.ts",
+		"src/**/*.js",
+		"src/**/*.ts",
+		"src/**/*.svelte"
+	],
+	"exclude": ["node_modules/**"]
+	// Path aliases: `#lib` is handled by the `imports` map in package.json, not tsconfig `paths`.
+}

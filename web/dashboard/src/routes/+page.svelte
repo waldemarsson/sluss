@@ -1,10 +1,17 @@
-<script>
+<script lang="ts">
 	import { onMount } from 'svelte';
 	import Secrets from '#lib/Secrets.svelte';
 	import Kits from '#lib/Kits.svelte';
+	import type { AccessConfig, ApiError, Sandbox, Snapshot } from '#lib/api.js';
 
-	let snapshot = $state(null);
-	let access = $state({ access: 'path', hostPrefix: 'sluss-', domain: '', repos: [], scopes: [] });
+	let snapshot = $state<Snapshot | null>(null);
+	let access = $state<AccessConfig>({
+		access: 'path',
+		hostPrefix: 'sluss-',
+		domain: '',
+		repos: [],
+		scopes: []
+	});
 	let connected = $state(false);
 	let copied = $state('');
 	let busy = $state('');
@@ -17,7 +24,7 @@
 	onMount(() => {
 		fetch('/api/config')
 			.then((r) => r.json())
-			.then((c) => {
+			.then((c: AccessConfig) => {
 				access = c;
 				form.repo = c.repos?.[0] ?? '';
 				form.scope = c.scopes?.[0] ?? '';
@@ -37,7 +44,7 @@
 
 	// OpenCode is reached through sluss. Claude Code and Copilot have their own
 	// remote interfaces, so they get deep links and are never proxied.
-	function connectTo(sandbox) {
+	function connectTo(sandbox: Sandbox): { href: string; label: string } | null {
 		if (sandbox.agent === 'claude') return { href: 'https://claude.ai/code', label: 'claude.ai' };
 		if (sandbox.agent === 'copilot') return { href: 'https://github.com/copilot', label: 'github.com' };
 		if (sandbox.agent !== 'opencode' || sandbox.status !== 'running' || !sandbox.webPort) return null;
@@ -52,13 +59,13 @@
 
 	// Every mutation runs scripts/sluss on the server. A refusal comes back as 409
 	// with the script's own message, which is shown unchanged.
-	async function act(label, request) {
+	async function act(label: string, request: () => Promise<Response>) {
 		busy = label;
 		problem = '';
 		try {
 			const response = await request();
 			if (!response.ok) {
-				const body = await response.json().catch(() => ({}));
+				const body: ApiError = await response.json().catch(() => ({}));
 				problem = (body.stderr || body.error || `failed with ${response.status}`).trim();
 			}
 		} catch (error) {
@@ -68,7 +75,7 @@
 		}
 	}
 
-	function create(event) {
+	function create(event: SubmitEvent) {
 		event.preventDefault();
 		return act('create', () =>
 			fetch('/api/sandboxes', {
@@ -79,7 +86,7 @@
 		);
 	}
 
-	function stop(sandbox) {
+	function stop(sandbox: Sandbox) {
 		return act(`${sandbox.scope}/${sandbox.name}`, () =>
 			fetch(`/api/sandboxes/${sandbox.scope}/${sandbox.name}/stop`, {
 				method: 'POST',
@@ -89,13 +96,13 @@
 		);
 	}
 
-	function destroy(sandbox) {
+	function destroy(sandbox: Sandbox) {
 		return act(`${sandbox.scope}/${sandbox.name}`, () =>
 			fetch(`/api/sandboxes/${sandbox.scope}/${sandbox.name}`, { method: 'DELETE' })
 		);
 	}
 
-	async function copyAttach(name) {
+	async function copyAttach(name: string) {
 		const command = `sluss attach ${name}`;
 		try {
 			await navigator.clipboard.writeText(command);
