@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
-	import Secrets from '$lib/Secrets.svelte';
-	import Kits from '$lib/Kits.svelte';
+	import Secrets from '#lib/Secrets.svelte';
+	import Kits from '#lib/Kits.svelte';
 
 	let snapshot = $state(null);
 	let access = $state({ access: 'path', hostPrefix: 'sluss-', domain: '', repos: [], scopes: [] });
