@@ -25,8 +25,8 @@ jobs:
         run: go test ./...
       - name: Build supported targets
         run: |
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/sluss-darwin-arm64 ./cmd/sluss
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /tmp/sluss-linux-amd64 ./cmd/sluss
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/slussd-darwin-arm64 ./cmd/slussd
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /tmp/slussd-linux-amd64 ./cmd/slussd
       - name: Check shell scripts
         run: |
           bash -n scripts/install.sh scripts/sluss scripts/test-sluss
