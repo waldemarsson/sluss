@@ -32,6 +32,43 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# ── Playwright / Chromium runtime libraries ──────────────────────────────────
+# The dashboard's browser tests drive a real headless Chromium. The browser *binary* is a
+# per-user download handled in postCreate.sh, but its shared libraries are system packages
+# needing root — only possible here, at build time: postCreate.sh drops the vscode NOPASSWD
+# sudo rule as its last step, so nothing can apt-install once the container is running.
+# Without these, a test run fails at browser launch rather than on an assertion.
+#
+# This is the Ubuntu 24.04 (noble) set that `playwright install-deps` resolves to; the `t64`
+# suffixes are noble's 64-bit-time_t package renames and are not interchangeable with the
+# jammy names. To refresh after a Playwright major upgrade, run
+# `npx playwright install-deps --dry-run chromium` and reconcile.
+# Kept in step with the homehub and babytabs devcontainers.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libasound2t64 \
+        libatk-bridge2.0-0t64 \
+        libatk1.0-0t64 \
+        libatspi2.0-0t64 \
+        libcairo2 \
+        libcups2t64 \
+        libdbus-1-3 \
+        libgbm1 \
+        libglib2.0-0t64 \
+        libnspr4 \
+        libnss3 \
+        libpango-1.0-0 \
+        libx11-6 \
+        libxcb1 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxext6 \
+        libxfixes3 \
+        libxkbcommon0 \
+        libxrandr2 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # ── micro editor (external prompt editing via Ctrl+G) ────────────────────────
 # Pinned release, downloaded directly from GitHub and SHA256-verified — no `curl | bash`,
 # so the build fails loudly on a tampered or failed download instead of running remote code.

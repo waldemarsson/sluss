@@ -59,6 +59,13 @@
       "target": "/home/vscode/.npm",
       "type": "volume",
     },
+    // Playwright browser binaries (~400MB) live here — a volume keeps them across rebuilds
+    // instead of re-downloading on every postCreate.
+    {
+      "source": "devcontainer-playwright-${devcontainerId}",
+      "target": "/home/vscode/.cache/ms-playwright",
+      "type": "volume",
+    },
     // Bind-mount Copilot skills/agents/extensions/workflow/plugins/etc so host and container stay in sync.
     // Deliberately excludes ~/.copilot/{config.json,data.db,session-state,chats,logs} —
     // those hold credentials and other sessions' history and must never enter the container.
@@ -166,6 +173,7 @@
         "golang.go",
         "svelte.svelte-vscode",
         "bradlc.vscode-tailwindcss",
+        "ms-playwright.playwright",
         "esbenp.prettier-vscode",
       ],
       "settings": {

@@ -33,3 +33,36 @@ jobs:
           shellcheck scripts/install.sh scripts/sluss scripts/test-sluss
       - name: Test shell scripts
         run: ./scripts/test-sluss
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/dashboard/package-lock.json
+      - name: Install dashboard dependencies
+        working-directory: web/dashboard
+        run: npm ci
+      # The component project renders into a real Chromium (see web/dashboard/vite.config.js).
+      # `--with-deps` pulls the system libraries the browser needs, which the GitHub runner image
+      # does not carry by default; without it the run fails at browser launch, not an assertion.
+      # The devcontainer deliberately does the opposite split — libraries baked into the image,
+      # browser downloaded without root — because it drops its sudo rule; see .devcontainer/Dockerfile.
+      - name: Install Playwright Chromium
+        working-directory: web/dashboard
+        run: npx playwright install --with-deps chromium
+      - name: Type-check dashboard
+        working-directory: web/dashboard
+        run: npm run check
+      # Before the build, so a logic failure reports without waiting on the slower step.
+      - name: Test dashboard
+        working-directory: web/dashboard
+        run: |
+          npm run test:unit
+          npm run test:component
+      - name: Build dashboard
+        working-directory: web/dashboard
+        run: npm run build

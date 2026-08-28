@@ -42,12 +42,14 @@ echo "🔑 Fixing volume ownership..."
 sudo mkdir -p \
     "$HOME/go/pkg/mod" \
     "$HOME/.cache/go-build" \
+    "$HOME/.cache/ms-playwright" \
     "$HOME/.npm" \
     "$HOME/.copilot"
 sudo chown vscode:vscode "$HOME/.copilot"
 sudo chown -R vscode:vscode \
     "$HOME/go" \
     "$HOME/.cache/go-build" \
+    "$HOME/.cache/ms-playwright" \
     "$HOME/.npm" \
     2>/dev/null || true
 echo "   ✅ Done"
@@ -97,6 +99,15 @@ if [ -f "$repo_root/web/dashboard/package.json" ]; then
     echo "📦 Installing dashboard dependencies..."
     (cd "$repo_root/web/dashboard" && npm ci)
     echo "   ✅ Done"
+
+    # ── Playwright browser ──────────────────────────────────────────────────────
+    # Chromium only. Just the browser binary here: its system libraries are baked into
+    # the image (see .devcontainer/Dockerfile), so this needs no root and cannot strand
+    # the NOPASSWD-sudo removal below. Lands in the ms-playwright volume, so a rebuild
+    # does not re-download it. Same split as homehub and babytabs.
+    echo "🎭 Installing Playwright Chromium..."
+    (cd "$repo_root/web/dashboard" && npx playwright install chromium)
+    echo "   ✅ Done"
 fi
 
 # ── Drop NOPASSWD sudo rule ───────────────────────────────────────────────────
@@ -124,6 +135,7 @@ echo "  jq             : $(jq --version 2>/dev/null || echo 'NOT FOUND')"
 echo "  tree           : $(tree --version 2>/dev/null | head -n1 || echo 'NOT FOUND')"
 echo "  micro          : $(micro -version 2>/dev/null | head -n1 || echo 'NOT FOUND')"
 echo "  ast-grep       : $(sg --version 2>/dev/null || echo 'NOT FOUND')"
+echo "  Chromium       : $(ls -d "$HOME/.cache/ms-playwright"/chromium-* 2>/dev/null | head -n1 | xargs -r basename || echo 'NOT FOUND')"
 echo "  sbx            : host-only (needs hardware virt) — see docs/SPIKE.md"
 echo "  Copilot skills : $(ls "$HOME/.copilot/skills" 2>/dev/null | wc -l) file(s)"
 echo "  Copilot agents : $(ls "$HOME/.copilot/agents" 2>/dev/null | wc -l) file(s)"
@@ -138,6 +150,7 @@ echo ""
 echo "📋 Quick Start"
 echo "  Build:         task build"
 echo "  Check:         task check       # gofmt + go vet + go test"
+echo "  Dashboard:     task test:web"
 echo "  Cross-compile: task build:linux # NAS target (M5)"
 echo "  Claude Code:   claude"
 echo "  Copilot CLI:   copilot auth login"
