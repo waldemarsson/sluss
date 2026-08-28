@@ -94,7 +94,12 @@ sandbox, so parallel environments still need separate worktrees.
 
 **Why:** the environment is the product; the chat UI is replaceable. Building one is a category error and an enormous amount of work.
 
-**Known friction:** OpenCode's web UI assumes root path (hence subdomains, never path prefixes), OAuth callbacks bind to loopback inside the sandbox (prefer API keys or device-code flow), and SSE through a proxy has been reported as slow (hence D5).
+**Known friction:** OpenCode's web UI assumes root path, OAuth callbacks bind to loopback inside the sandbox (prefer API keys or device-code flow), and SSE through a proxy has been reported as slow (hence D5).
+
+**Update:** the root-path assumption is now load-bearing rather than a note. D13 makes
+`/s/<scope>/<name>/` the default addressing mode, so whether OpenCode Web tolerates a base path
+decides whether the zero-infrastructure deployment works. It is recorded but **unverified** —
+`SPIKE.md` assumption 8. `host` mode serves root and is the fallback if the answer is no.
 
 ---
 
@@ -149,3 +154,109 @@ It is also cleanly additive — adding the resolver later needs no refactor, pro
 - *helo* — short and types well, but phonetically identical to "hello", which makes it unsearchable.
 - *viv* (vivarium) — the AI namespace already has Viv Labs, and `viur-cli`/`vivid-cli`/`vivify-cli` crowd the search results.
 - *kruka* (flowerpot) — fits the kaktus.nu domain nicely, but also means "coward" in colloquial Swedish.
+
+---
+
+## D12 — No state of sluss's own
+
+**Chosen:** derive every sandbox fact per poll from `sbx --app-name X ls --json` plus git commands
+against the worktree path sbx reports. Nothing is persisted.
+
+**Why:** state files drift from reality the moment someone runs `sbx rm` by hand, and the fix for
+that drift — reconciliation — is a milestone's worth of work to keep a second copy of something sbx
+already knows. With one copy there is nothing to reconcile: an external removal is visible within a
+tick and its route stops resolving. The repository and worktree come out of the workspaces the
+script already mounts, so even that is not stored.
+
+**Supersedes:** `SPEC.md` v0.5 §9 (state files) and the roadmap's M2 reconciliation milestone.
+
+**Cost accepted:** a poll per interval per scope, and a few git processes per sandbox behind it
+(capped at eight concurrently). At one person's fleet size this is noise; it would not be at a
+hundred sandboxes.
+
+---
+
+## D13 — One port, two addressing modes
+
+**Chosen:** sluss binds a single listener and routes to sandboxes itself, addressing them either by
+path (`/s/<scope>/<name>/`) or by host (`<prefix><name>.<domain>`). Sandbox ports stay on loopback.
+
+**Why:** port-per-sandbox is not viable on the actual target. The NAS VM sits on an Incus NAT
+bridge, reachable only through Incus *proxy devices* — each one a privileged command on the host,
+outside the VM sluss runs in, and NAT-mode devices reject a wildcard listen address. A port per
+sandbox would mean a sudo command on the NAS plus a Traefik route for every sandbox created. One
+fixed port needs one device and one route, made once and never touched again.
+
+`path` mode is the default because it needs nothing at all: no DNS, no wildcard certificate, no
+reverse proxy. `host` mode serves root, which is the fallback if OpenCode Web turns out not to
+tolerate a base path (D7).
+
+**Single-label prefix** (`sluss-auth.<domain>`, not `auth.sluss.<domain>`): a wildcard DNS record
+and a wildcard TLS certificate each match exactly one label, so a two-label name is covered by
+neither, and the existing wildcards already cover every sandbox sluss will ever create.
+
+**Supersedes:** `SPEC.md` v0.5 §7's `*.sluss.localhost` scheme and its per-sandbox port table.
+
+**Rejected:** *writing Traefik routes per sandbox.* It also would not have worked — that Traefik
+runs the file provider only — and generating configuration for someone else's proxy is what made
+the earlier design non-portable.
+
+---
+
+## D14 — Lifecycle stays in the shell script
+
+**Chosen:** `slussd` creates, stops and destroys sandboxes by running `scripts/sluss` as a
+subprocess with the chosen repository as its working directory and `SLUSS_APP_NAME` /
+`SLUSS_AGENT` / `SLUSS_WORKTREE_ROOT` in its environment.
+
+**Why:** the script already does worktree lifecycle correctly, including the unwind when
+`sbx create` fails and the refusal to destroy dirty or unmerged work. A Go reimplementation would
+be a second implementation to keep in step, and the GUI would quietly diverge from the terminal.
+Running the same code path is what makes "created from the browser" and "created in a terminal"
+identical by construction rather than by testing.
+
+**Cost accepted:** shelling out to bash on every mutation, and parsing exit codes rather than
+errors. A non-zero exit is treated as the script's answer and surfaced verbatim, not as a sluss
+failure.
+
+**Consequence:** a lifecycle run is detached from the HTTP request that started it. Cancelling the
+request would kill the script mid-operation — between `git worktree add` and `sbx create`, where
+its own unwind never runs — leaving an orphan worktree and branch.
+
+---
+
+## D15 — Authentication deferred, and what stands in for it
+
+**Chosen:** no authentication. Reachability is the boundary: `lan: false` binds loopback, and the
+NAS deployment is LAN- and VPN-only.
+
+**Why:** this inherits the homelab's existing and documented stance for its current opencode VM —
+"you are on the LAN is the whole auth story, and it is only reachable over the VPN" — together with
+the standing instruction never to port-forward it. Adding a token to sluss alone would not change
+the property that anything on that LAN can already reach the agent it protects.
+
+**But the premise has a hole:** a browser makes `127.0.0.1` reachable from any page on the web. So
+mutating routes reject a cross-site `Sec-Fetch-Site` and require `application/json` on POST — the
+one shape a cross-origin request can take without a preflight. That closes the drive-by path. It is
+not authentication and must not be described as such.
+
+**Revisit when:** sluss becomes reachable from outside the VPN, or untrusted devices join the LAN —
+the same two conditions the homelab names.
+
+**Supersedes:** `AGENTS.md`'s former "every mutating route is gated by the token from
+`~/.config/sluss/token`" rule, and the roadmap's M3.
+
+---
+
+## D16 — Two binaries: `sluss` and `slussd`
+
+**Chosen:** the shell script keeps the name `sluss`; the Go daemon is `slussd`.
+
+**Why:** `scripts/install.sh` installs the script to `~/.local/bin/sluss`, and the daemon was
+originally to be called `sluss` too. Two things of the same name on `PATH` make install order decide
+which one a bare `sluss start` runs, and a daemon that resolved its script by a bare lookup could
+invoke itself. `slussd` resolves the script through `$SLUSS_SCRIPT`, else the installed path, never
+by searching `PATH`.
+
+**Cost accepted:** one more name to know, and `cmd/slussd` no longer matches the `cmd/sluss` path
+the earlier spec named.

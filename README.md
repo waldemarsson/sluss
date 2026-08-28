@@ -4,15 +4,17 @@ A single-binary control plane over [Docker Sandboxes](https://docs.docker.com/ai
 
 *sluss* is Swedish for an airlock or canal lock — an enclosed chamber things pass through in isolation.
 
-**Status:** the planned Go application is on hold. The repository currently provides a
-small shell wrapper for the sbx and Git-worktree workflow.
+**Status:** two pieces, both usable. `sluss` is the shell script that owns the sandbox and
+worktree lifecycle. `slussd` is a Go daemon that shows every sandbox across repos and sbx scopes in
+a browser, proxies OpenCode Web through one port, and runs the script for you. Neither has yet been
+exercised against a real sandbox on the NAS — see [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Docs
 
 | File | Purpose |
 |---|---|
-| [docs/SPEC.md](docs/SPEC.md) | What we're building, architecture, size estimate |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Milestone order, gates, what's still open |
+| [docs/SPEC.md](docs/SPEC.md) | What sluss is, how it routes, how it is configured |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What shipped, what is still unverified |
 | [docs/SPIKE.md](docs/SPIKE.md) | Assumptions to verify **before writing code** |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Why choices were made, what was rejected |
 | [docs/PROFILES.md](docs/PROFILES.md) | Deferred per-client profile design |
@@ -38,6 +40,51 @@ curl -fsSL https://raw.githubusercontent.com/waldemarsson/sluss/main/scripts/ins
 
 Docker Sandboxes is a separate runtime prerequisite; follow
 [Docker's installation guide](https://docs.docker.com/ai/sandboxes/install/).
+
+## The dashboard (`slussd`)
+
+`slussd` polls every configured sbx scope, joins what sbx knows with what git knows about each
+worktree, and serves the result. It stores nothing: an `sbx rm` by hand shows up within one poll.
+
+Build it and write a configuration file:
+
+```bash
+task build     # → dist/slussd (builds the dashboard first)
+```
+
+`scripts/install.sh` installs the script only, so put the daemon on `PATH` yourself
+(`install -m 0755 dist/slussd ~/.local/bin/slussd`) or run it as `./dist/slussd`.
+
+```json
+// ~/.config/sluss/config.json
+{ "lan": false, "port": 8420, "access": "path",
+  "appNames": ["personal", "omegapoint"],
+  "repos": ["/Users/marwal/src/mercurius"],
+  "kitsDir": "/Users/marwal/kits",
+  "worktreeRoot": "/Users/marwal/src/worktrees" }
+```
+
+```bash
+slussd doctor   # bound address, sbx version, each scope, the script, repos, kits
+slussd serve    # http://127.0.0.1:8420
+```
+
+`lan: false` binds loopback; `true` binds every interface, for a VM behind a front proxy. A
+failure to bind is fatal and names the address — sluss never quietly binds something else.
+
+Sandboxes are reached over that same port. With `"access": "path"` (the default) an OpenCode
+sandbox is at `http://127.0.0.1:8420/s/<scope>/<name>/`, which needs no DNS, no certificate and no
+reverse proxy. With `"access": "host"` — which additionally needs wildcard DNS and a matching
+certificate — it is at `https://sluss-<name>.<domain>/`. Claude Code and Copilot sandboxes are not
+proxied; the dashboard deep-links to `claude.ai/code` and `github.com` instead.
+
+There is **no authentication**, by decision (D15): reachability is the boundary, so keep `lan`
+false unless the network in front of it is one you trust. Mutating requests do reject cross-site
+browser calls, but that closes drive-by requests only — it is not auth.
+
+The dashboard also offers a write-only secrets pane per scope (names are listed, values only ever
+go in) and a plain-text editor for each kit's `spec.yaml`, with the kits directory's git status
+beside it. Committing kits stays a manual step.
 
 ## Lightweight sbx workflow
 
@@ -102,8 +149,12 @@ delete it if one is left over.
 ## Development
 
 ```bash
-task build     # host binary → dist/sluss
-task check     # gofmt + go vet + go test
+task web       # build the dashboard into web/dashboard/build (go:embed reads it there)
+task build     # host binary → dist/slussd, dashboard included
+task check     # gofmt + go vet + go test + shellcheck + the script's black-box tests
 ```
+
+No Go test shells out to a real `sbx`: `internal/sbxstub` puts a fake one on `PATH` the way
+`scripts/test-sluss` already does, and the script tests run the real `scripts/sluss` against it.
 
 `sbx` needs hardware virtualisation and its own daemon, so it does not run in the devcontainer. The container builds and tests the Go code; anything touching a real sandbox runs on the host.

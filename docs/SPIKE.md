@@ -1,8 +1,10 @@
 # Phase 0 — Verify before writing code
 
-Seven assumptions. Each is under an hour. Two are load-bearing: **1 and 3**. Do those first.
+Eight assumptions. Each is under an hour. Three are load-bearing: **1, 3 and 8**. Do those first.
 
-If 1 or 3 comes back false, stop and revise `SPEC.md` before writing anything.
+If 1 or 3 comes back false, stop and revise `SPEC.md` before writing anything. Assumption 8 was
+added after the GUI was built (D13) and decides whether the default access mode survives; a "no"
+there is a spec revision too, not a workaround.
 
 Record answers inline in this file as you go.
 
@@ -200,6 +202,12 @@ Still to do for a real answer to this assumption: the `secret set` / `secret ls`
 check as written above, whether sandbox names collide across app-names, and whether a second
 `login` is genuinely required.
 
+**What now depends on it:** the secrets pane assumes `secret ls` prints names (one per line, first
+field) and that `secret set NAME` reads the value from stdin — argv would expose it in `ps`.
+`secret rm NAME` is assumed for deletion. All three assumptions live in `internal/sbx/sbx.go` and
+nowhere else, so a wrong answer costs one file. sluss already keys everything by
+`(scope, name)`, so a name collision across app-names cannot confuse it either way.
+
 ---
 
 ## 6. Does nested virtualization work in a TrueNAS SCALE VM?
@@ -264,6 +272,28 @@ sbx --app-name $APP env create /tmp/probe
 Also test the deep-merge with mixed formats: a YAML base file and a JSON overlay, and confirm later-overrides-earlier holds.
 
 **If false:** emit the overlay from a small text template. Thirty lines, still no YAML parser needed.
+
+**Answer:**
+
+---
+
+## 8. Does OpenCode Web work under a base path? ⚠️ LOAD-BEARING
+
+**Why it matters:** D13 makes `path` mode the default — `https://<host>/s/<scope>/<name>/` — because
+it needs no DNS, no wildcard certificate and no reverse proxy at all. D7 records OpenCode's web UI
+as assuming root. If that assumption holds, the zero-infrastructure deployment does not work for
+OpenCode and `host` mode becomes mandatory.
+
+Run `slussd serve` with `access: path` against a real OpenCode sandbox, open
+`http://127.0.0.1:8420/s/<scope>/<name>/` and check, in order:
+
+- does `index.html` load at all, or does it 404 on its own assets?
+- do the asset URLs resolve under the prefix, or are they absolute to `/`?
+- does the SSE/token stream connect, or does it request `/event` at the root?
+
+**If false:** `path` mode still serves everything else; OpenCode alone needs `host` mode. Say so in
+`SPEC.md` §7, make `host` the documented default for OpenCode, and note that wildcard DNS returns
+as a requirement — already satisfied on the NAS target, no longer free elsewhere.
 
 **Answer:**
 

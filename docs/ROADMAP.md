@@ -1,93 +1,64 @@
 # sluss — Roadmap
 
-Sequencing for `SPEC.md`. Phases there describe *what* gets built; this describes *in what order*, *what unlocks the next step*, and *where the honest stopping points are*.
+Where the work stands and what is left. `SPEC.md` describes *what* sluss is; this describes *what
+is done*, *what blocks the rest*, and *where the honest stopping points are*.
 
-**Status:** M0 in progress. Assumption 1 is verified; the remaining assumptions in
-`SPIKE.md` must be answered before anything below M0 becomes committed work.
-
----
-
-## Milestones
-
-| # | Milestone | Deliverable | Exit criterion |
-|---|---|---|---|
-| **M0** | Spike | `SPIKE.md` answered — 1 and 3 first, then 2, 4, 5, 7. Assumption 6 only if M5 is still wanted. | Verdict paragraph written: build, revise, or abandon |
-| **M0.5** | Repo skeleton | Initial commit, `.gitignore`, `AGENTS.md` at root, `idea/` → `docs/`, `go mod init`, Taskfile | `go build ./...` passes |
-| **M1a** | Walking skeleton | `env create` (worktree → `sbx create` with the worktree and shared Git metadata mounted writable → state write, with unwind) and `env destroy` (unmerged check → `sbx rm` → worktree remove) | One environment created and destroyed; Git works inside it; `git worktree list` is correct after both |
-| **M1b** | Proxy | `sluss serve` on `127.0.0.1:8420`, host-header routing, `FlushInterval: -1`, routing table rebuilt from state at startup | `auth.sluss.localhost:8420` streams OpenCode tokens at TUI speed |
-| **M1c** | Daily loop | `env list`, `env open`, `env stop`, defaults for `--app-name` / `--kit` from `~/.config/sluss/config.json` | Two environments running in parallel on one repo, both reviewed with ordinary `git diff` |
-| **GATE** | Two weeks of use | No code | See *Gate* below |
-| **M2** | Make it a tool | Reconciliation, sbx error mapping, `doctor`, table-driven tests, restart survival | `sbx rm -f <name>` by hand → `env list` marks it stale and does not crash |
-| **M3** | Token auth | `~/.config/sluss/token`, cookie gate on every mutating route, bind moves to `0.0.0.0` | Unauthenticated `DELETE /api/environments/:id` returns 401. Only then: LAN and phone access |
-| **M4** | Dashboard | Svelte + `go:embed`, `GET /api/environments`, `GET /api/events` SSE hub | Usable from a phone; the SSE hub exercises the same flush path as the OpenCode proxy |
-| **M5** | Linux / NAS | `GOOS=linux` build, VM on TrueNAS SCALE, existing Traefik in front for TLS | Same daily loop works from outside the LAN |
-| **—** | Profiles | Only when a trigger in `PROFILES.md` fires | — |
+**Status:** the GUI control plane is implemented and tested against a stubbed sbx. Nothing has yet
+run against a real sandbox, and three items below need hardware the devcontainer does not have.
 
 ---
 
-## Sequencing decisions
+## Done
 
-These differ from the phase table in `SPEC.md` §13. The deliverables are unchanged; the order is not.
+| Milestone | Deliverable |
+|---|---|
+| **Script workflow** | `scripts/sluss` — worktree, branch, sandbox, attach, stop, destroy. Unchanged by the daemon work and still the only implementation of lifecycle. |
+| **Fleet** | `internal/sbx` (the one place sbx is invoked), `internal/gitfacts`, `internal/fleet` — a stateless poll loop producing an immutable snapshot per tick. |
+| **Serving** | `internal/server` (dashboard, JSON, SSE, lifecycle, secrets, kits) and `internal/proxy` (one port, `path` and `host` addressing, `FlushInterval: -1`). |
+| **Dashboard** | SvelteKit, adapter-static, embedded via `go:embed`: fleet table, create form, secrets pane, kit editor. |
+| **Command** | `slussd serve`, `slussd doctor`, `slussd version`. |
 
-### Auth comes before the dashboard, not with it
-
-`SPEC.md` §8 bundles the shared token into the dashboard API, but §7 calls it non-negotiable before anything is LAN-reachable. Between M1b and M3 there is a proxy with destroy paths behind it and no gate, one bind-address change away from being exposed.
-
-**Rule for M1b through M2: bind `127.0.0.1` only.** M3 is the milestone that earns `0.0.0.0`. Do not move the bind address early "just to test from the phone".
-
-### Phase 1 splits into three
-
-M1a and M1b can fail independently, and M1b failing makes M1a wasted work. The cheapest falsification order is: throwaway proxy in the spike (M0 assumption 3 already scripts it) → M1a → M1b. By the time real proxy code is written, the premise is already proven.
-
-### The gate gets a date
-
-`SPEC.md` §14 says "two weeks after Phase 1". Vague deadlines don't get enforced against code you've grown fond of.
-
-**When M1c lands, write the date here:**
-
-- M1c completed: `____-__-__`
-- Gate review due: `____-__-__`
-
-Gate question, answered honestly: *are environments being created without thinking about it?* If they aren't, this was a tool worth building, not one worth needing — stop at M1 and keep it as a personal script.
-
-The other two kill criteria stay live throughout: SSE unpleasant after tuning → delete the proxy and use `sbx tui`; sbx breaking changes costing more than a day per release → too early to build on this.
+The milestones this replaces are worth naming, because their absence is deliberate: **M2's
+reconciliation** is gone because there is no state to reconcile (D12), and **M3's token auth** is
+deferred rather than built (D15).
 
 ---
 
-## Resolved before M1a
+## Open — needs the host Mac or the NAS
 
-### `--isolated` is out of the MVP
+These are answered by running them, not by deciding.
 
-`SPEC.md` §6 kept `--clone` as an escape hatch, but D4 deleted the `git ext::` transport that was the only way to get work *out* of a cloned sandbox. As specified, `--isolated` produced work that couldn't be reviewed.
-
-**Decision: not in the MVP.** No flag, no code path. If stronger isolation is wanted later it needs an explicit sync step designed alongside it — `sbx cp`, or pushing to a branch — not a flag that leaves work stranded.
-
----
-
-## Module path
-
-The confirmed module path is `github.com/waldemarsson/sluss`.
-
----
-
-## Open — resolve during M0
-
-These are answered by spiking, not by deciding.
-
-| Question | Blocks | Depends on |
+| # | Question | Blocks |
 |---|---|---|
-| **Port allocation.** State (§9) hardcodes `"port": 14096` as if sluss chooses it. If sbx assigns instead, sluss reads-after-create and the routing table must refresh on every sandbox start. | `internal/state`, `internal/proxy` | SPIKE 4 |
-| **What drives the SSE hub.** §8 promises a state-change stream; nothing specifies what detects changes — polling `sbx ls`, watching the state directory, or in-process events only. In-process-only is the lean answer and means an external `sbx rm` stays invisible until reconciliation. Whichever is chosen, say so in the spec. | M4 | — (design call, make it in M2) |
-| **`env open` semantics.** Print the URL, or launch a browser? There is no browser on the NAS. Print by default. | M1c | — |
+| 1 | **Does OpenCode Web serve under a base path?** (`SPIKE.md` 8) | whether `path` mode can stay the default. A "no" is a spec revision, not a workaround. |
+| 2 | **SSE through the proxy at TUI speed** (`SPIKE.md` 3), Traefik included | the premise of the whole project (`SPEC.md` §13) |
+| 3 | **`sbx secret` / `sbx kit` surface** (`SPIKE.md` 5) | the secrets pane's exact argv — one file, `internal/sbx` |
+| 4 | **Deployment acceptance** — laptop with zero infrastructure, then the NAS VM behind one Incus proxy device and one Traefik router, opened from a phone over the VPN | calling any of this finished |
+
+Item 4 also needs `groups agent` to include `kvm` in the VM (`SPIKE.md` 6): `/dev/kvm` is
+`root:kvm` mode 0660 and `cloud-init.yaml` adds `agent` to `docker` only.
+
+---
+
+## Kill criteria, still live
+
+- SSE unpleasant after tuning → delete the proxy and use `sbx tui`. Very little of sluss remains,
+  and that is a legitimate outcome.
+- sbx breaking changes costing more than a day per release → too early to build on this.
+- **The gate that matters:** *are sandboxes being created without thinking about it?* If they are
+  not after a couple of weeks of real use, this was a tool worth building rather than one worth
+  needing — keep the script, drop the daemon.
 
 ---
 
 ## Structural invariants
 
-Carried from `AGENTS.md` and `DECISIONS.md`, repeated because they are cheap now and expensive later:
+Repeated from `AGENTS.md` and `DECISIONS.md` because they are cheap now and expensive later:
 
-- **All sbx invocation lives in `internal/sbx`,** app-name a parameter on every command. This is what keeps profiles a small addition rather than a hunt (D3, D10).
-- **Every worktree sandbox also mounts the main repository's `.git` directory writable.** A linked worktree's `.git` file points there; without the second mount, Git fails inside the sandbox (SPIKE 1, D4).
-- **`FlushInterval: -1` is load-bearing** (D5). No buffering middleware, no `Content-Length` on streamed responses.
-- **Every multi-step operation gets its unwind path written at the same time as the happy path** — worktree created but `sbx create` failed means the worktree is removed.
-- **sluss parses no YAML** (D6). JSON in, `.sbxenv.yaml` emitted only.
+- **All sbx invocation lives in `internal/sbx`,** app-name a parameter on every command (D3, D10).
+- **Lifecycle lives in `scripts/sluss`.** The daemon runs it; it does not reimplement it (D14).
+- **Every worktree sandbox also mounts the main repository's `.git` directory writable** (SPIKE 1, D4).
+- **`FlushInterval: -1` is load-bearing** (D5). No buffering middleware, no `Content-Length` on
+  streamed responses.
+- **sluss holds no state** (D12), and **parses no YAML** (D6).
+- **Profiles stay deferred** until a trigger in `PROFILES.md` fires (D10).

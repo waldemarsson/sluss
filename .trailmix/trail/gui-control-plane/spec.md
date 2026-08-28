@@ -4,8 +4,8 @@ title: GUI control plane over sbx
 created: 2026-08-28
 updated: 2026-08-28
 waypoint: discuss
-status: draft
-document: pending
+status: approved
+document: done
 ---
 
 # GUI control plane over sbx — spec

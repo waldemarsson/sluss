@@ -4,17 +4,27 @@ Instructions for coding agents working on sluss.
 
 ## Read first
 
-- `docs/SPEC.md` — what we're building and why
-- `docs/ROADMAP.md` — milestone order, gates, and what's still open. Tells you what work is in scope *now*.
-- `docs/DECISIONS.md` — settled choices and rejected alternatives. **Do not relitigate these.** If you think one is wrong, say so in prose and wait; don't silently implement the alternative.
+- `.trailmix/trail/gui-control-plane/spec.md` and `plan.md` — **the current truth**: what is being
+  built, in what order, and under which constraints. Where they disagree with anything in `docs/`,
+  they win.
+- `docs/DECISIONS.md` — settled choices and rejected alternatives. **Do not relitigate these.** If you think one is wrong, say so in prose and wait; don't silently implement the alternative. D3, D4, D5, D6 and D9 carry forward unchanged; the `*.sluss.localhost` port-per-sandbox routing scheme is superseded by the spec's single-port design.
 - `docs/SPIKE.md` — assumptions verified before coding. If an answer is blank, that assumption is **unverified** — flag it rather than coding around it.
+- `docs/SPEC.md`, `docs/ROADMAP.md` — **superseded** by the spec above; rewritten at the Document waypoint. History, not instructions.
 - `docs/PROFILES.md` — a deferred feature. **Do not implement anything in it** unless explicitly asked.
+
+## Two binaries, two names
+
+`sluss` is the shell script (`scripts/sluss`, installed to `~/.local/bin/sluss`) and remains the
+lifecycle tool. `slussd` (`cmd/slussd`) is the Go daemon serving the dashboard and the reverse
+proxy. The script is **unchanged** by daemon work: `slussd` invokes it as a subprocess, resolved
+explicitly through `$SLUSS_SCRIPT` or the installed path — never by a bare `PATH` lookup, which
+could find `slussd` itself.
 
 ## Where things run
 
 sbx needs hardware virtualisation and its own host daemon, so **it does not run in the devcontainer.**
 The container is for writing, building and unit-testing Go. Anything that touches a real sandbox —
-`docs/SPIKE.md`, `sluss doctor`, `sluss env` against a live sbx — runs on the host Mac.
+`docs/SPIKE.md`, `slussd doctor`, `slussd serve` against a live sbx — runs on the host Mac.
 Don't write a test that shells out to a real `sbx`.
 
 ## Context you need
@@ -39,7 +49,10 @@ The author is an experienced .NET/C# developer **learning Go on this project**. 
 - Table-driven tests.
 - Standard library first. Justify every new dependency in the PR description.
 
-Approved dependencies: `spf13/cobra`, `charmbracelet/lipgloss`. Anything else, ask.
+Approved dependencies: none currently in use — `slussd` is standard library only (`flag`,
+`net/http` including its method-and-wildcard mux patterns, `encoding/json`, `go:embed`).
+`spf13/cobra` and `charmbracelet/lipgloss` stay pre-approved if the CLI outgrows `flag`. Anything
+else, ask. The dashboard is SvelteKit with adapter-static, embedded into the binary.
 
 ## Architecture rules
 
@@ -49,11 +62,15 @@ Approved dependencies: `spf13/cobra`, `charmbracelet/lipgloss`. Anything else, a
 
 **Never generate a kit `spec.yaml`.** Kits are hand-authored, live in git, get shared. sluss references paths only.
 
-**sluss parses no YAML.** State and config are JSON. The `.sbxenv.yaml` overlay is emitted only.
+**sluss parses no YAML.** Config is JSON. Kit `spec.yaml` is read and written as opaque text —
+sbx is the validator, and no Go struct models the kit schema.
 
-**Every multi-step operation needs an unwind path.** Worktree created but sandbox creation failed — clean up the worktree. Write the unwind at the same time as the happy path, not later.
+**Every multi-step operation needs an unwind path.** Worktree created but sandbox creation failed — clean up the worktree. Write the unwind at the same time as the happy path, not later. Worktree lifecycle and its unwind live in `scripts/sluss`; don't reimplement either in Go.
 
-**Reconciliation is required.** State files drift from reality the moment someone runs `sbx rm` by hand. Every read path must tolerate a missing sandbox and report it rather than crash.
+**sluss holds no persistent state.** Every sandbox fact is derived per poll from
+`sbx --app-name X ls --json` plus git commands against the worktree path sbx reports. There are no
+state files and nothing to reconcile — an `sbx rm` by hand becomes visible within one tick. Every
+read path must tolerate a missing sandbox or a vanished worktree and report it rather than crash.
 
 ## Things to be careful with
 
@@ -61,15 +78,21 @@ Approved dependencies: `spf13/cobra`, `charmbracelet/lipgloss`. Anything else, a
 
 **Error messages from sbx.** These are the bulk of the work and the difference between a script and a tool. "not logged in", "daemon not running", "name already exists", "kit fetch failed", "network policy blocked the install hook" each need a readable message with a suggested fix. Don't dump raw stderr.
 
-**Destroy is destructive.** `env destroy` must refuse when the worktree has unmerged commits, requiring `--force`. A confirmation prompt is the wrong affordance when the cost is losing an afternoon of agent work.
+**Destroy is destructive.** `scripts/sluss destroy` already refuses uncommitted or unmerged work without `--force`. `slussd` surfaces that refusal unchanged and never passes `--force` — discarding unmerged work stays a deliberate terminal action. A confirmation prompt is the wrong affordance when the cost is losing an afternoon of agent work.
 
-**Dashboard auth.** Every mutating route is gated by the token from `~/.config/sluss/token`. The dashboard has destroy buttons and is LAN-reachable. Do not ship a route without the gate.
+**Dashboard auth is deferred by decision.** Do **not** add a token gate to mutating routes. Reachability is the whole auth story: `lan: false` binds loopback, and the NAS deployment is LAN- and VPN-only, inheriting the homelab's documented and accepted stance for its existing opencode VM. Revisit only under the conditions homelab names — reachable from outside the VPN, or untrusted devices on the LAN.
 
 ## Working style
 
 - Small changes. One concern per commit.
-- Run `task check` (gofmt + `go vet` + `go test`) before finishing.
+- Run `task check` (gofmt + `go vet` + `go test` + shellcheck + the script's black-box tests) before finishing.
 - When a spec detail is ambiguous, ask rather than guessing. This spec was iterated a lot; the gaps that remain are usually genuine uncertainty, not oversight.
-- If you discover sbx behaves differently to what `SPEC.md` assumes, **stop and report it**. Several design decisions rest on sbx's actual behaviour; a wrong assumption should change the spec, not get worked around in code.
-- Milestones M1a–M1c are deliberately crude — no reconciliation, no tests, no dashboard. Don't gold-plate it. Its only purpose is finding out whether the daily loop is worth the remaining work.
+- If you discover sbx behaves differently to what the spec assumes, **stop and report it**. Several design decisions rest on sbx's actual behaviour; a wrong assumption should change the spec, not get worked around in code.
+- The plan's tasks are the unit of work: one task, one green gate, one commit. Don't gold-plate a
+  task to make the next one easier.
 - Profiles are deferred by an explicit decision (D10). If a task seems to need them, it probably doesn't — ask.
+- Two build gotchas worth knowing before you trip on them: `go:embed` cannot reach outside its own
+  package directory, which is why the dashboard is embedded from `web/embed.go` rather than
+  `internal/server`; and adapter-static empties `web/dashboard/build/` on every build, so the
+  `.gitkeep` that keeps the embed compiling from a fresh clone lives in `web/dashboard/static/` and
+  is copied back in by the build.
