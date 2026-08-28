@@ -220,6 +220,34 @@ Also confirm current sbx platform support — reports from April 2026 said macOS
 
 **Answer:**
 
+**True.** Verified 2026-08-28 against the real target — the `opencode` Incus QEMU VM on the
+TrueNAS box, not a throwaway guest. AMD host, and nesting is on at the host's kernel module:
+
+```
+# TrueNAS host
+$ sudo cat /sys/module/kvm_amd/parameters/nested
+1
+
+# inside the opencode VM
+$ grep -oE 'vmx|svm' /proc/cpuinfo | head -1
+svm
+$ ls -l /dev/kvm
+crw-rw---- 1 root kvm 10, 232 Aug 22 13:57 /dev/kvm
+```
+
+So the guest sees AMD-V and has a KVM device, which is what sbx needs on Linux. The NAS
+deployment is not blocked by virtualization.
+
+One thing this does **not** yet establish, and it is cheap: **`/dev/kvm` is `root:kvm` mode
+0660.** Whichever user runs sbx must be in the `kvm` group, and the VM's `agent` user is not in
+it by default — `homelab`'s `cloud-init.yaml` adds `agent` to `docker` and nothing else. Expect
+the same class of failure as that file's documented gotchas: a permission error that reads like
+a virtualization fault. Check with `groups agent`, fix with `usermod -aG kvm agent` and record
+it in `cloud-init.yaml`.
+
+VM sizing and how many sandboxes fit is an operator concern, deliberately not a sluss design
+input — the fleet view assumes no maximum.
+
 ---
 
 ## 7. Does sbx accept JSON in a `.sbxenv.yaml` file?
