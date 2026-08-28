@@ -1,7 +1,7 @@
 version: "3"
 
 vars:
-  BIN: dist/sluss
+  BIN: dist/slussd
 
 env:
   CGO_ENABLED: "0"
@@ -11,16 +11,25 @@ tasks:
     cmds:
       - task: check
 
+  web:
+    desc: Build the dashboard into web/dashboard/build, where go:embed picks it up
+    dir: web/dashboard
+    cmds:
+      - npm ci
+      - npm run build
+
   build:
     desc: Build for the host platform
+    deps: [web]
     vars:
       VERSION:
         sh: git describe --tags --always --dirty 2>/dev/null || echo dev
     cmds:
-      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}} ./cmd/sluss
+      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}} ./cmd/slussd
 
   build:linux:
-    desc: Cross-compile for the NAS (M5)
+    desc: Cross-compile for the NAS
+    deps: [web]
     vars:
       VERSION:
         sh: git describe --tags --always --dirty 2>/dev/null || echo dev
@@ -28,7 +37,7 @@ tasks:
       GOOS: linux
       GOARCH: amd64
     cmds:
-      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}}-linux ./cmd/sluss
+      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}}-linux ./cmd/slussd
 
   install:
     desc: Download and install the lightweight sluss script to ~/.local/bin

@@ -1,8 +1,10 @@
 # Phase 0 — Verify before writing code
 
-Seven assumptions. Each is under an hour. Two are load-bearing: **1 and 3**. Do those first.
+Eight assumptions. Each is under an hour. Three are load-bearing: **1, 3 and 8**. Do those first.
 
-If 1 or 3 comes back false, stop and revise `SPEC.md` before writing anything.
+If 1 or 3 comes back false, stop and revise `SPEC.md` before writing anything. Assumption 8 was
+added after the GUI was built (D13) and decides whether the default access mode survives; a "no"
+there is a spec revision too, not a workaround.
 
 Record answers inline in this file as you go.
 
@@ -200,6 +202,12 @@ Still to do for a real answer to this assumption: the `secret set` / `secret ls`
 check as written above, whether sandbox names collide across app-names, and whether a second
 `login` is genuinely required.
 
+**What now depends on it:** the secrets pane assumes `secret ls` prints names (one per line, first
+field) and that `secret set NAME` reads the value from stdin — argv would expose it in `ps`.
+`secret rm NAME` is assumed for deletion. All three assumptions live in `internal/sbx/sbx.go` and
+nowhere else, so a wrong answer costs one file. sluss already keys everything by
+`(scope, name)`, so a name collision across app-names cannot confuse it either way.
+
 ---
 
 ## 6. Does nested virtualization work in a TrueNAS SCALE VM?
@@ -220,6 +228,34 @@ Also confirm current sbx platform support — reports from April 2026 said macOS
 
 **Answer:**
 
+**True.** Verified 2026-08-28 against the real target — the `opencode` Incus QEMU VM on the
+TrueNAS box, not a throwaway guest. AMD host, and nesting is on at the host's kernel module:
+
+```
+# TrueNAS host
+$ sudo cat /sys/module/kvm_amd/parameters/nested
+1
+
+# inside the opencode VM
+$ grep -oE 'vmx|svm' /proc/cpuinfo | head -1
+svm
+$ ls -l /dev/kvm
+crw-rw---- 1 root kvm 10, 232 Aug 22 13:57 /dev/kvm
+```
+
+So the guest sees AMD-V and has a KVM device, which is what sbx needs on Linux. The NAS
+deployment is not blocked by virtualization.
+
+One thing this does **not** yet establish, and it is cheap: **`/dev/kvm` is `root:kvm` mode
+0660.** Whichever user runs sbx must be in the `kvm` group, and the VM's `agent` user is not in
+it by default — `homelab`'s `cloud-init.yaml` adds `agent` to `docker` and nothing else. Expect
+the same class of failure as that file's documented gotchas: a permission error that reads like
+a virtualization fault. Check with `groups agent`, fix with `usermod -aG kvm agent` and record
+it in `cloud-init.yaml`.
+
+VM sizing and how many sandboxes fit is an operator concern, deliberately not a sluss design
+input — the fleet view assumes no maximum.
+
 ---
 
 ## 7. Does sbx accept JSON in a `.sbxenv.yaml` file?
@@ -236,6 +272,28 @@ sbx --app-name $APP env create /tmp/probe
 Also test the deep-merge with mixed formats: a YAML base file and a JSON overlay, and confirm later-overrides-earlier holds.
 
 **If false:** emit the overlay from a small text template. Thirty lines, still no YAML parser needed.
+
+**Answer:**
+
+---
+
+## 8. Does OpenCode Web work under a base path? ⚠️ LOAD-BEARING
+
+**Why it matters:** D13 makes `path` mode the default — `https://<host>/s/<scope>/<name>/` — because
+it needs no DNS, no wildcard certificate and no reverse proxy at all. D7 records OpenCode's web UI
+as assuming root. If that assumption holds, the zero-infrastructure deployment does not work for
+OpenCode and `host` mode becomes mandatory.
+
+Run `slussd serve` with `access: path` against a real OpenCode sandbox, open
+`http://127.0.0.1:8420/s/<scope>/<name>/` and check, in order:
+
+- does `index.html` load at all, or does it 404 on its own assets?
+- do the asset URLs resolve under the prefix, or are they absolute to `/`?
+- does the SSE/token stream connect, or does it request `/event` at the root?
+
+**If false:** `path` mode still serves everything else; OpenCode alone needs `host` mode. Say so in
+`SPEC.md` §7, make `host` the documented default for OpenCode, and note that wildcard DNS returns
+as a requirement — already satisfied on the NAS target, no longer free elsewhere.
 
 **Answer:**
 
