@@ -474,6 +474,12 @@ rather than with awk removes that second class of bug structurally.
 exit code parsed out of a subprocess, so the exit status is decided where the reason is known. The
 `Result{exitCode, stdout, stderr}` shape is kept exactly, because the dashboard consumes it.
 
+**One smaller divergence, recorded rather than hidden:** the script tested the worktree path with
+`[[ -e ]]`, which follows symlinks, so a dangling symlink there was not "occupied" and
+`git worktree add` was attempted against it. The Go port uses `Lstat`, so a dangling symlink is
+occupied and `start` refuses with "worktree path already exists" — a clearer message than the git
+failure it replaces.
+
 **Consequence:** an unscoped sbx call is no longer possible. The script fell back to sbx's default
 scope when `SLUSS_APP_NAME` was unset; `internal/sbx` requires an app-name, so the command line
 resolves one from the environment, then the configuration file, and reports a readable error if

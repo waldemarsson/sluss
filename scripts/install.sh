@@ -68,15 +68,24 @@ actual="$(checksum "${tmp}/${asset}")"
 [ "$expected" = "$actual" ] ||
 	fail "checksum mismatch for ${asset}; the download is not the released archive, so nothing was installed"
 
-tar -xzf "${tmp}/${asset}" -C "$tmp" || fail "the download is not a valid archive"
-[ -f "${tmp}/sluss" ] || fail "the archive contains no sluss binary"
-chmod 0755 "${tmp}/sluss"
-"${tmp}/sluss" version >/dev/null 2>&1 || fail "the downloaded sluss does not run on this machine"
+# Unpacked into its own directory, so a hostile archive cannot overwrite the asset
+# or the checksums it was just verified against.
+mkdir -p "${tmp}/unpack"
+tar -xzf "${tmp}/${asset}" -C "${tmp}/unpack" || fail "the download is not a valid archive"
+
+# The entry must be a regular file. -L is tested first because -f follows symlinks:
+# a "sluss" that is a link to some other path would otherwise be chmod'd and run.
+# internal/release makes the same check with tar.TypeReg; keep the two in step.
+[ ! -L "${tmp}/unpack/sluss" ] ||
+	fail "the archive's sluss is a symbolic link, not a binary; refusing to install it"
+[ -f "${tmp}/unpack/sluss" ] || fail "the archive contains no sluss binary"
+chmod 0755 "${tmp}/unpack/sluss"
+"${tmp}/unpack/sluss" version >/dev/null 2>&1 || fail "the downloaded sluss does not run on this machine"
 
 mkdir -p "$install_dir"
 # Copy first, then rename within the destination directory: rename is atomic there,
 # so an interrupted install leaves either the old sluss or the new one.
-cp "${tmp}/sluss" "${install_dir}/.sluss.new"
+cp "${tmp}/unpack/sluss" "${install_dir}/.sluss.new"
 chmod 0755 "${install_dir}/.sluss.new"
 mv "${install_dir}/.sluss.new" "${install_dir}/sluss"
 

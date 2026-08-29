@@ -57,6 +57,18 @@ publish() {
 	printf '%s  %s\n' "$(sha256 "$dir/$asset")" "$asset" > "$dir/checksums.txt"
 }
 
+# publish_symlink publishes an archive whose "sluss" is a symlink rather than a
+# binary — what a compromised build would ship, checksummed and all.
+publish_symlink() {
+	local target="$1" dir="$work/remote/releases/latest/download"
+	mkdir -p "$dir" "$work/evil"
+	rm -f "$work/evil/sluss"
+	ln -s "$target" "$work/evil/sluss"
+	# No -h: store the link itself, not what it points at.
+	tar -czf "$dir/$asset" -C "$work/evil" sluss
+	printf '%s  %s\n' "$(sha256 "$dir/$asset")" "$asset" > "$dir/checksums.txt"
+}
+
 # corrupt replaces a published archive's bytes without touching its checksums.txt.
 corrupt() {
 	local tag="$1" mode="$2" dir
@@ -156,6 +168,18 @@ corrupt latest checksum
 install_sluss "$dir"
 check_contains 'a checksum mismatch is named as such' 'checksum mismatch' "$output"
 check_contains 'a checksum mismatch says nothing was installed' 'nothing was installed' "$output"
+
+# --- install: an archive whose payload is not a binary ----------------------
+
+# A valid checksum only proves the bytes are the ones that were published. It says
+# nothing about what is inside them, so the contents are checked too.
+publish latest good
+install_sluss "$dir"
+publish_symlink /bin/echo
+install_sluss "$dir"
+check_status 'install refuses an archive whose sluss is a symlink' 1
+check_contains 'install names the symlink' 'symbolic link' "$output"
+check_binary_says "$dir/sluss" good 'a symlinked payload leaves the installation untouched'
 
 # --- install: a release that is not there -----------------------------------
 

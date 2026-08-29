@@ -326,4 +326,42 @@ that the `PATH` collision D16 avoided cannot occur once only one thing is instal
 - None.
 
 ## Amendments
-- None.
+- 2026-08-29 — **`internal/server` takes a `Lifecycle` interface, not `*lifecycle.Runner`.** The
+  plan assumed the server tests would pass with only a type swap. They would not: they faked the
+  runner with a shell script and asserted on its recorded argv, and that mechanism no longer
+  exists. An interface declared where it is consumed lets the route tests keep asserting what they
+  actually mean — what the routes asked lifecycle to do — without wiring a real git repository and
+  a real sbx into 1034 lines of HTTP tests. Routes, status codes and JSON are unchanged.
+- 2026-08-29 — **`sbx.Remove` has no `force` parameter.** The plan's contract carried one, but the
+  retired script always passed `sbx rm --force` regardless of its own `--force`: sbx's flag means
+  "do not prompt", not "discard work". The parameter would have been dead. Whether the worktree
+  may be discarded is still decided in `lifecycle.Destroy` (D20), unchanged.
+- 2026-08-29 — **`Runner.Agent`, not `Runner.DefaultAgent`.** The package-level constant
+  `DefaultAgent` took that name.
+- 2026-08-29 — **`release.Client.Update` takes an extra `version` parameter** —
+  `(ctx, current, version, execPath, out)`, not the contract's
+  `(ctx, currentVersion, execPath, out)`. It is what lets `SLUSS_VERSION` pin a tag and skip the
+  API call entirely; covered by `TestUpdateWithAnExplicitVersionSkipsTheAPI`.
+- 2026-08-29 — **`gitfacts.Run` and `gitfacts.OK` are exported and shared** rather than lifecycle
+  growing a second git runner. A new package for one function would have gone against AGENTS.md's
+  flat-package rule.
+- 2026-08-29 — **T8's `internal/release` landed with T6**, because `cmd/sluss` dispatches `update`
+  and would not build without it. Both gates were run.
+- 2026-08-29 — **The command line now requires an sbx scope.** The script fell back to sbx's own
+  default scope when `SLUSS_APP_NAME` was unset; `internal/sbx` requires an app-name by the
+  chokepoint rule, so `sluss` resolves one from the environment, then the configuration file, and
+  reports a readable error naming both if there is none. Recorded in D23.
+- 2026-08-29 — **`exists()` uses `Lstat`, so a dangling symlink counts as occupied.** The script's
+  `[[ -e ]]` followed symlinks, so a dangling one was *not* occupied and `git worktree add` was
+  attempted. sluss now refuses with "worktree path already exists" instead. A deliberate
+  divergence from the port — a clearer message than the git failure it replaces — recorded in D23.
+- 2026-08-29 — **AC12's literal wording is not met, by intent.** `docs/SPEC.md` and `docs/SPIKE.md`
+  keep `slussd` and `scripts/sluss` mentions where they describe historical state, which is what
+  T11 asked for ("corrected names rather than a rewrite"). AC12 should have said "outside
+  documents that are explicitly history".
+- 2026-08-30 — **Post-review: `scripts/install.sh` rejects a non-regular `sluss` entry.** Review
+  finding M1: `[ -f ]` follows symlinks, so an archive matching its own `checksums.txt` but
+  containing a symlink named `sluss` would have been `chmod 0755`'d and executed — a divergence
+  from `internal/release.extract`, which guards with `tar.TypeReg`. The archive is now unpacked
+  into its own directory and `-L` is tested before `-f`. Covered by a new `scripts/test-install`
+  case, mutation-tested to confirm it fails without the guard.
