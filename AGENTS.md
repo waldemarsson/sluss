@@ -90,7 +90,8 @@ read path must tolerate a missing sandbox or a vanished worktree and report it r
 - Run `task check` (gofmt + `go vet` + `go test` + shellcheck + the script's black-box tests) before finishing.
 - Dashboard work has its own gates, deliberately kept out of `task check` so a Go change does
   not pay for a browser launch: `task check:web` (Prettier + svelte-check) and `task test:web`
-  (Vitest `unit` on node, `component` in a real headless Chromium). CI runs both. The
+  (Vitest `unit` on node for `*.unit.test.ts`, `component` in a real headless Chromium for
+  everything else — D22). CI runs both. The
   component project needs Chromium in `~/.cache/ms-playwright`; the devcontainer installs it
   in postCreate, so on a fresh container run `task test:web` only after the rebuild finishes.
 - **The dashboard is Prettier-formatted — don't hand-format it.** `web/dashboard/.prettierrc.json`

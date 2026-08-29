@@ -3,4 +3,4 @@
 	import { access } from '#lib/access.svelte.js';
 </script>
 
-<Secrets scopes={access.config.scopes ?? []} />
+<Secrets scopes={access.config.scopes} />

@@ -2,7 +2,7 @@ import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { playwright } from '@vitest/browser-playwright';
 // From 'vitest/config', not 'vite' — the plain vite `defineConfig` doesn't type the `test` key.
-import { defineConfig } from 'vitest/config';
+import { defaultExclude, defineConfig } from 'vitest/config';
 
 export default defineConfig({
 	// SvelteKit 3 takes its config through the Vite plugin; there is no svelte.config.js.
@@ -23,13 +23,11 @@ export default defineConfig({
 				extends: true,
 				test: {
 					name: 'unit',
-					include: ['src/**/*.test.{js,ts}'],
-					exclude: ['src/lib/**', 'src/routes/**'],
+					// The suffix is the rule, not the directory: src/lib now holds both a
+					// framework-free module (api.ts) and the components and rune modules that
+					// need a real browser, so a path split can no longer tell them apart.
+					include: ['src/**/*.unit.test.{js,ts}'],
 					environment: 'node'
-					// The dashboard is all components so far — every .svelte file talks to the
-					// API and the DOM, and there is no framework-free module to cover here yet,
-					// so `test:unit` carries --passWithNoTests. Drop that flag once src/ grows
-					// one; it stays off `test:component` so a broken glob fails loudly there.
 				}
 			},
 			{
@@ -37,6 +35,9 @@ export default defineConfig({
 				test: {
 					name: 'component',
 					include: ['src/lib/**/*.test.{js,ts}', 'src/routes/**/*.test.{js,ts}'],
+					// Spread, not replaced: assigning `exclude` overrides Vitest's own defaults,
+					// which are what keep a stray node_modules under src/ from being collected.
+					exclude: [...defaultExclude, 'src/**/*.unit.test.{js,ts}'],
 					// A real browser, not jsdom: these components are driven by fetch and by
 					// form-control state (bind:value on a <select> and a <textarea>), and
 					// asserting those against a DOM simulation would be testing the simulation.

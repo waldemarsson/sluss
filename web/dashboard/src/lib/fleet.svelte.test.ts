@@ -62,3 +62,17 @@ test('holds the latest snapshot across a drop and reconnects only once', () => {
 
 	vi.unstubAllGlobals();
 });
+
+test('fills in the arrays a partial snapshot leaves out', () => {
+	vi.stubGlobal('EventSource', FakeEventSource);
+	FakeEventSource.opened = [];
+	const fleet = new Fleet();
+
+	fleet.connect();
+	FakeEventSource.opened[0]?.deliver('fleet', { at: '2026-08-28T10:00:00Z' });
+
+	expect(fleet.snapshot?.repos).toEqual([]);
+	expect(fleet.snapshot?.scopeErrors).toEqual([]);
+
+	vi.unstubAllGlobals();
+});

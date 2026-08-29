@@ -89,3 +89,52 @@ export type ApiError = {
 	stdout?: string;
 	stderr?: string;
 };
+
+// --- Requests ---------------------------------------------------------------
+
+/**
+ * Either the parsed body or one ready-to-display line. No component sees a Response, a
+ * thrown fetch, or the precedence rule below.
+ */
+export type Result<T> = { ok: true; body: T } | { ok: false; message: string };
+
+// A lifecycle route answers a refusal with the script's own stderr (see ApiError above),
+// which is the message worth showing; every other route carries `error`. The status line
+// is the last resort, for a response whose body is not JSON at all.
+async function messageFor(response: Response): Promise<string> {
+	const body: ApiError = await response.json().catch(() => ({}));
+	return (body.stderr || body.error || `failed with ${response.status}`).trim();
+}
+
+async function send<T>(
+	url: string,
+	init: RequestInit | undefined,
+	read: (response: Response) => Promise<T>
+): Promise<Result<T>> {
+	try {
+		const response = await fetch(url, init);
+		if (!response.ok) return { ok: false, message: await messageFor(response) };
+		return { ok: true, body: await read(response) };
+	} catch (problem) {
+		// An unreachable server is a message like any other, so no caller writes a catch.
+		return { ok: false, message: String(problem) };
+	}
+}
+
+/** A JSON read. */
+export function request<T>(url: string, init?: RequestInit): Promise<Result<T>> {
+	return send(url, init, (response) => response.json() as Promise<T>);
+}
+
+/** A plain-text read — a kit's spec.yaml is text on the wire, not JSON. */
+export function requestText(url: string, init?: RequestInit): Promise<Result<string>> {
+	return send(url, init, (response) => response.text());
+}
+
+/**
+ * A mutation whose success body is never read. The secret and kit writes answer 204 with
+ * no body at all, so parsing one would turn every successful save into an error.
+ */
+export function command(url: string, init: RequestInit): Promise<Result<void>> {
+	return send<void>(url, init, async () => undefined);
+}
