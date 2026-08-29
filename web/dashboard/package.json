@@ -16,7 +16,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
-		"test:unit": "vitest run --project unit --passWithNoTests",
+		"test:unit": "vitest run --project unit",
 		"test:component": "vitest run --project component",
 		"test:watch": "vitest",
 		"test:coverage": "vitest run --coverage"

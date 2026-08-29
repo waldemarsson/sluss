@@ -317,7 +317,7 @@ checking, more verbose, and it would have made a third convention across three f
 cost more than nine small types are worth. When a mirrored struct changes, `npm run check` finds
 every use — it catches the misuse, not the drift, so change both sides together.
 
-**Still open:** eslint and prettier. Both siblings have them and sluss has neither.
+**Still open:** eslint. Prettier arrived in D21, which also records why eslint did not.
 
 **Amends:** D17's note that `jsconfig.json` supplies the `include`/`exclude` — that file is now
 `tsconfig.json`; everything else in D17 stands.
@@ -385,3 +385,63 @@ exactly `true`, and never sticky.
 against them, not UI polish. `internal/script`'s `Destroy` takes `force` as an explicit parameter
 so a caller cannot discard work by omission, and its false case is covered by a test.
 
+
+---
+
+## D21 — Prettier, copied from the sibling frontends rather than configured here
+
+**Chosen:** `web/dashboard/.prettierrc.json` is byte-identical to the file in
+`waldemarsson/babytabs` and `waldemarsson/homehub` — tabs, single quotes,
+`trailingComma: "none"`, 100 columns, `prettier-plugin-svelte` — at the same dependency
+versions. `.prettierignore` follows babytabs' shape. `task fmt:web` writes, `task check:web`
+checks, and CI fails on unformatted code. This closes the "still open" note in D18.
+
+**Why:** the three frontends share a devcontainer lineage and the same
+SvelteKit-SPA-in-a-backend shape, so a formatter that disagreed between them would fight
+anyone moving code across, and every copied snippet would arrive as diff noise. The previous
+instruction in `AGENTS.md` — "the dashboard has no formatter… match the surrounding style by
+hand" — was a reasonable answer while no config existed anywhere, but the siblings did have
+one; only this repo hadn't asked them.
+
+Adopting the house file rather than a locally-derived one also happened to be cheaper: a config
+inferred from sluss's own source set `trailingComma: "all"` (Prettier's default) and rewrote 19
+files, where the house `"none"` rewrites 12, because sluss was already written without them.
+
+**Rejected:**
+- *A config derived from sluss's existing source.* Defensible in isolation and it is what was
+  written first, but it encodes one repo's accumulated history as if it were a standard, and it
+  diverged from the siblings in exactly the setting they had bothered to set.
+- *ESLint alongside it.* babytabs runs `eslint` with `eslint-plugin-svelte`,
+  `typescript-eslint` and `eslint-config-prettier`, so the convention argument points at adopting
+  it too. Deliberately deferred on 2026-08-29: `svelte-check` already gates the type-level
+  problems, and the rule-level ones can wait for a frontend larger than ~1100 lines. This is a
+  known, chosen divergence from the siblings, not an oversight — revisit it rather than
+  rediscovering it.
+
+**Consequence:** never hand-format a dashboard file. A formatting-only reformat is its own commit
+(the one that introduced this decision), so a later diff stays readable.
+
+---
+
+## D22 — Test projects split on a filename suffix, not a directory
+
+**Chosen:** Vitest's `unit` project collects `src/**/*.unit.test.{js,ts}` and runs on node;
+`component` collects everything else under `src/lib` and `src/routes` and runs in real headless
+Chromium. `test:unit` no longer carries `--passWithNoTests`.
+
+**Why:** the split used to be by path — `unit` excluded `src/lib/**` and `src/routes/**`, which
+left it with nothing to run. That held while every module in `src/lib` was a component or a rune
+module that needs a DOM. `lib/api.ts` broke it: it is framework-free, it owns the rule that turns
+a failed response into one displayed line, and that rule is worth testing directly rather than
+through three components. A directory can no longer say which kind of test a file is, so the
+filename does.
+
+**Rejected:**
+- *Leaving `api.ts` to the component project.* It would run in Chromium for no reason, and
+  `test:unit` would keep `--passWithNoTests`, which silently tolerates a broken glob.
+- *A separate directory for framework-free modules.* It splits `api.ts` from the types it
+  belongs with to satisfy a test runner.
+
+**Consequence:** `--passWithNoTests` is gone, so an empty `unit` project now fails loudly. The
+component project's `exclude` spreads Vitest's `defaultExclude` rather than replacing it, or
+assigning it would drop the built-in `**/node_modules/**` guard.

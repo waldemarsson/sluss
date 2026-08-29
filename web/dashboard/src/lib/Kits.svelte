@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { ApiError, GitStatus, Kit, KitList } from '#lib/api.js';
+	import {
+		command,
+		request,
+		requestText,
+		type GitStatus,
+		type Kit,
+		type KitList
+	} from '#lib/api.js';
 
 	// spec.yaml is plain text here and everywhere else in sluss: nothing parses it,
 	// nothing formats it, and sbx is the validator. What is typed is what is saved.
@@ -10,6 +17,9 @@
 	let spec = $state('');
 	let error = $state('');
 	let busy = $state(false);
+	// Only the newest spec load may write to `spec`, so the editor can never show one
+	// kit's file while the selector names another.
+	let latestSpec = 0;
 
 	onMount(refreshList);
 
@@ -20,51 +30,37 @@
 	});
 
 	async function refreshList() {
-		try {
-			const response = await fetch('/api/kits');
-			const body: KitList & ApiError = await response.json();
-			if (!response.ok) {
-				error = body.error ?? `failed with ${response.status}`;
-				return;
-			}
-			list = body.kits ?? [];
-			status = body.status ?? status;
-			// `list.length > 0` would not narrow the index access under
-			// noUncheckedIndexedAccess; binding the element does.
-			const first = list[0];
-			if (!selected && first) selected = first.name;
-		} catch (problem) {
-			error = String(problem);
+		error = '';
+		const result = await request<KitList>('/api/kits');
+		if (!result.ok) {
+			error = result.message;
+			return;
 		}
+		list = result.body.kits ?? [];
+		status = result.body.status ?? status;
+		// `list.length > 0` would not narrow the index access under
+		// noUncheckedIndexedAccess; binding the element does.
+		const first = list[0];
+		if (!selected && first) selected = first.name;
 	}
 
 	async function loadSpec(name: string) {
+		const ticket = ++latestSpec;
 		error = '';
-		try {
-			const response = await fetch(`/api/kits/${name}/spec`);
-			const text = await response.text();
-			spec = response.ok ? text : '';
-			if (!response.ok) error = text;
-		} catch (problem) {
-			error = String(problem);
-		}
+		const result = await requestText(`/api/kits/${name}/spec`);
+		if (ticket !== latestSpec) return;
+		spec = result.ok ? result.body : '';
+		if (!result.ok) error = result.message;
 	}
 
 	async function save() {
 		busy = true;
 		error = '';
-		try {
-			const response = await fetch(`/api/kits/${selected}/spec`, { method: 'PUT', body: spec });
-			if (!response.ok) {
-				const body: ApiError = await response.json().catch(() => ({}));
-				error = body.error ?? `failed with ${response.status}`;
-			}
-		} catch (problem) {
-			error = String(problem);
-		} finally {
-			busy = false;
-			await refreshList();
-		}
+		const result = await command(`/api/kits/${selected}/spec`, { method: 'PUT', body: spec });
+		busy = false;
+		// After the refresh, not before: refreshList clears `error` on entry.
+		await refreshList();
+		if (!result.ok) error = result.message;
 	}
 </script>
 

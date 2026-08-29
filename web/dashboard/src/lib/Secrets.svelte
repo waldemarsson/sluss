@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ApiError, SecretList } from '#lib/api.js';
+	import { command, request, type SecretList } from '#lib/api.js';
 
 	interface Props {
 		scopes?: string[];
@@ -17,6 +17,10 @@
 	let error = $state('');
 	let busy = $state(false);
 	let draft = $state({ name: '', value: '' });
+	// Only the newest request may write to `names`. Without this a slow response for the
+	// scope just left lands after the fresh one and renders its names under the current
+	// scope's label — the one thing a per-scope secret list must never do.
+	let latest = 0;
 
 	// Loading the list is a genuine side effect — it reads `scope` and talks to the
 	// server. Nothing it writes is read back here, so it cannot loop.
@@ -25,36 +29,29 @@
 	});
 
 	async function refresh(forScope: string) {
+		const ticket = ++latest;
 		error = '';
-		try {
-			const response = await fetch(`/api/secrets/${forScope}`);
-			const body: SecretList & ApiError = await response.json();
-			if (!response.ok) {
-				error = body.error ?? `failed with ${response.status}`;
-				names = [];
-				return;
-			}
-			names = body.names ?? [];
-		} catch (problem) {
-			error = String(problem);
+		const result = await request<SecretList>(`/api/secrets/${forScope}`);
+		if (ticket !== latest) return;
+		if (!result.ok) {
+			error = result.message;
+			names = [];
+			return;
 		}
+		names = result.body.names ?? [];
 	}
 
 	async function send(method: string, name: string, value: string | undefined) {
 		busy = true;
 		error = '';
-		try {
-			const response = await fetch(`/api/secrets/${scope}/${name}`, { method, body: value });
-			if (!response.ok) {
-				const body: ApiError = await response.json().catch(() => ({}));
-				error = body.error ?? `failed with ${response.status}`;
-			}
-		} catch (problem) {
-			error = String(problem);
-		} finally {
-			busy = false;
-			await refresh(scope);
-		}
+		const result = await command(`/api/secrets/${scope}/${name}`, { method, body: value });
+		busy = false;
+		// Refreshed even after a failure: the list on screen is the only evidence of what
+		// the scope actually holds now. The refusal is reported after that refresh, not
+		// before it — `refresh` clears `error` on entry, so a message set here first would
+		// be wiped before it ever rendered.
+		await refresh(scope);
+		if (!result.ok) error = result.message;
 	}
 
 	async function set(event: SubmitEvent) {

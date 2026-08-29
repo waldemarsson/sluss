@@ -312,3 +312,56 @@ test('claims nothing about the configuration until it has arrived', async () => 
 	// The fleet is independent of the configuration and still renders.
 	await expect.element(screen.getByText('auth', { exact: true })).toBeVisible();
 });
+
+// The arming checkbox for an irreversible action should not move around: before the
+// lifecycle controls got a row of their own it wrapped differently depending on whether
+// the card carried a connect link, landing beside destroy on some cards and a row above
+// it on others.
+test('keeps the force checkbox on the destroy row of every card', async () => {
+	fleet.snapshot = {
+		at: '2026-08-28T10:00:00Z',
+		repos: [
+			{
+				repo: '/repos/sluss',
+				name: 'sluss',
+				// auth is opencode, running and published, so its card carries a connect
+				// link; bare is stopped with no port, so its card has none. Those are the
+				// two card shapes, and the wrap used to differ between them.
+				sandboxes: [
+					running,
+					sandbox({ name: 'bare', status: 'stopped', webPort: 0, dirty: false, unmerged: 0 })
+				]
+			}
+		],
+		scopeErrors: []
+	};
+	await page.viewport(PHONE, 800);
+	const screen = await render(Dashboard);
+
+	const rows = ['auth', 'bare'].map((name) => {
+		const box = screen.getByRole('checkbox', { name: `force destroy ${name}` }).element();
+		const card = box.closest('li');
+		if (!card) throw new Error(`no card around the ${name} checkbox`);
+		const destroy = card.querySelectorAll('button');
+		return {
+			box: box.getBoundingClientRect(),
+			destroy: at(
+				[...destroy].filter((b) => b.textContent?.trim() === 'destroy')
+			).getBoundingClientRect(),
+			card: card.getBoundingClientRect()
+		};
+	});
+
+	for (const row of rows) {
+		// Same row as the button it arms, not the row above it.
+		expect(row.box.top).toBeGreaterThanOrEqual(row.destroy.top);
+		expect(row.box.bottom).toBeLessThanOrEqual(row.destroy.bottom);
+	}
+
+	// And the same place across both card shapes. The tolerance is the width difference
+	// between the "stop" and "start" buttons that precede it, which is about a pixel.
+	const offset = (row: (typeof rows)[number]) => row.box.left - row.card.left;
+	expect(Math.abs(offset(at(rows)) - offset(at(rows, 1)))).toBeLessThan(3);
+
+	expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
+});
