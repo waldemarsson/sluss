@@ -246,7 +246,11 @@ func extract(archive []byte) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading the downloaded archive: %w", err)
 		}
-		if filepath.Base(header.Name) != "sluss" || header.Typeflag != tar.TypeReg {
+		// The entry must be exactly "sluss" at the archive root, and a regular file.
+		// Matching on the base name would also accept "decoy/sluss", letting a
+		// hostile archive hide the entry that gets installed behind a nested one;
+		// TypeReg rejects a symlink, which scripts/install.sh checks with -L.
+		if filepath.Clean(header.Name) != "sluss" || header.Typeflag != tar.TypeReg {
 			continue
 		}
 		body, err := io.ReadAll(io.LimitReader(reader, maxDownload))

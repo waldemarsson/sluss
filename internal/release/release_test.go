@@ -282,3 +282,103 @@ func TestAssetNamesAreVersionFree(t *testing.T) {
 		t.Errorf("AssetName = %q", got)
 	}
 }
+
+// entry is one file in a hand-built archive.
+type entry struct {
+	name string
+	body string
+	kind byte
+}
+
+func archiveOf(t *testing.T, entries ...entry) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, e := range entries {
+		kind := e.kind
+		if kind == 0 {
+			kind = tar.TypeReg
+		}
+		header := &tar.Header{Name: e.name, Mode: 0o755, Typeflag: kind}
+		if kind == tar.TypeReg {
+			header.Size = int64(len(e.body))
+		} else {
+			header.Linkname = e.body
+		}
+		if err := tw.WriteHeader(header); err != nil {
+			t.Fatalf("writing header for %s: %v", e.name, err)
+		}
+		if kind == tar.TypeReg {
+			if _, err := tw.Write([]byte(e.body)); err != nil {
+				t.Fatalf("writing %s: %v", e.name, err)
+			}
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// A valid checksum only proves the bytes are the ones that were published. It says
+// nothing about what is inside them, so the entry that gets installed is pinned:
+// exactly "sluss", at the root, and a regular file.
+func TestUpdateOnlyInstallsTheRootRegularSluss(t *testing.T) {
+	tests := []struct {
+		name    string
+		entries []entry
+		want    string // installed content, or "" when the update must be refused
+	}{
+		{
+			name:    "a nested decoy cannot stand in for the real entry",
+			entries: []entry{{name: "decoy/sluss", body: "hostile"}, {name: "sluss", body: "genuine"}},
+			want:    "genuine",
+		},
+		{
+			name:    "a nested entry alone is not a sluss binary",
+			entries: []entry{{name: "nested/sluss", body: "hostile"}},
+		},
+		{
+			name:    "a symlink named sluss is not a sluss binary",
+			entries: []entry{{name: "sluss", body: "/bin/sh", kind: tar.TypeSymlink}},
+		},
+		{
+			name:    "a directory named sluss is not a sluss binary",
+			entries: []entry{{name: "sluss", body: "", kind: tar.TypeDir}},
+		},
+		{
+			name:    "a leading ./ is still the root entry",
+			entries: []entry{{name: "./sluss", body: "genuine"}},
+			want:    "genuine",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := serveRelease(t, "v1.2.0", archiveOf(t, tt.entries...))
+			target := installed(t, "old sluss")
+			var out bytes.Buffer
+
+			err := f.client().Update(context.Background(), "v1.1.0", "", target, &out)
+			if tt.want == "" {
+				if err == nil {
+					t.Fatal("Update installed something from an archive with no root sluss binary")
+				}
+				if got := read(t, target); got != "old sluss" {
+					t.Errorf("binary = %q, want the original left in place", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Update: %v", err)
+			}
+			if got := read(t, target); got != tt.want {
+				t.Errorf("binary = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
