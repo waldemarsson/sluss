@@ -141,6 +141,37 @@ func TestUpdateReplacesTheBinary(t *testing.T) {
 	}
 }
 
+// "latest" excludes prereleases, so a release candidate is moved back to the newest
+// stable release. That is defensible, but going backwards silently is not: both
+// ends have to appear.
+func TestUpdateNamesBothEndsOfTheMove(t *testing.T) {
+	f := serveRelease(t, "v1.1.0", archive(t, "stable sluss"))
+	target := installed(t, "rc sluss")
+	var out bytes.Buffer
+
+	if err := f.client().Update(context.Background(), "v1.2.0-rc1", "", target, &out); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	for _, want := range []string{"v1.2.0-rc1", "v1.1.0", "latest stable"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output = %q, want it to contain %q", out.String(), want)
+		}
+	}
+}
+
+func TestUpdateSaysWhenAVersionWasPinned(t *testing.T) {
+	f := serveRelease(t, "v1.2.0", archive(t, "pinned sluss"))
+	target := installed(t, "old sluss")
+	var out bytes.Buffer
+
+	if err := f.client().Update(context.Background(), "v1.0.0", "v1.2.0", target, &out); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if !strings.Contains(out.String(), "SLUSS_VERSION") {
+		t.Errorf("output = %q, want it to say the version was pinned", out.String())
+	}
+}
+
 // The common case: nothing to do, and nothing downloaded to find that out.
 func TestUpdateIsANoOpWhenAlreadyLatest(t *testing.T) {
 	f := serveRelease(t, "v1.2.0", archive(t, "new sluss"))

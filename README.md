@@ -63,6 +63,10 @@ if there is nothing to do. Otherwise it downloads the archive, verifies its chec
 the running binary atomically — an interrupted update leaves either the old sluss or the new one,
 never half of either. `SLUSS_VERSION` pins a specific tag here too.
 
+"Latest" means the latest **stable** release: prereleases are excluded, so a binary from a release
+candidate is moved back to the newest stable one. `update` names both ends of the move before it
+does anything, so a step backwards is never silent.
+
 It refuses when the binary is a symlink, which normally points into a checkout that `git pull`
 should update instead, and when its directory is not writable.
 

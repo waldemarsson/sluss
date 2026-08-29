@@ -121,6 +121,12 @@ func (c *Client) Update(ctx context.Context, current, version, execPath string, 
 			fmt.Fprintf(out, "sluss %s is already the latest release\n", current)
 			return nil
 		}
+		// Name both ends. "latest" excludes prereleases, so someone running a
+		// release candidate is moved back to the newest stable one — reasonable, but
+		// only if it says so rather than silently going backwards.
+		fmt.Fprintf(out, "Updating sluss %s → %s (the latest stable release)\n", current, version)
+	} else {
+		fmt.Fprintf(out, "Installing sluss %s over %s, as SLUSS_VERSION asks\n", version, current)
 	}
 
 	target, err := resolveTarget(execPath)
@@ -128,7 +134,7 @@ func (c *Client) Update(ctx context.Context, current, version, execPath string, 
 		return err
 	}
 
-	fmt.Fprintf(out, "Downloading sluss %s for %s/%s...\n", version, runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(out, "Downloading %s for %s/%s...\n", AssetName(runtime.GOOS, runtime.GOARCH), runtime.GOOS, runtime.GOARCH)
 	asset := AssetName(runtime.GOOS, runtime.GOARCH)
 	archive, err := c.download(ctx, version, asset)
 	if err != nil {
