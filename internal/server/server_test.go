@@ -48,9 +48,12 @@ func recordedArgv(t *testing.T) string {
 	return string(body)
 }
 
+// Shaped like a real dashboard build: the nested routes prerender to a directory
+// index, because that is the only nested form a plain file server resolves.
 var assets = fstest.MapFS{
-	"index.html":   &fstest.MapFile{Data: []byte("<title>sluss</title>")},
-	"app/main.css": &fstest.MapFile{Data: []byte("body{}")},
+	"index.html":             &fstest.MapFile{Data: []byte("<title>sluss</title>")},
+	"app/main.css":           &fstest.MapFile{Data: []byte("body{}")},
+	"config/kits/index.html": &fstest.MapFile{Data: []byte("<title>kits</title>")},
 }
 
 // fleetFixture is the sbx listing the server tests run against: two sandboxes in
@@ -268,6 +271,12 @@ func TestStaticAssets(t *testing.T) {
 		{"/", http.StatusOK, "<title>sluss</title>"},
 		{"/app/main.css", http.StatusOK, "body{}"},
 		{"/missing.js", http.StatusNotFound, ""},
+		// A bookmarked configuration route, with and without the trailing slash the
+		// dashboard's own links carry. Without the slash the file server redirects,
+		// which http.Get follows, so both land on the same page.
+		{"/config/kits/", http.StatusOK, "<title>kits</title>"},
+		{"/config/kits", http.StatusOK, "<title>kits</title>"},
+		{"/config/nope/", http.StatusNotFound, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {

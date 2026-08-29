@@ -1,45 +1,40 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import Secrets from '#lib/Secrets.svelte';
-	import Kits from '#lib/Kits.svelte';
-	import type { AccessConfig, ApiError, Sandbox, Snapshot } from '#lib/api.js';
+	import type { ApiError, Sandbox } from '#lib/api.js';
+	import { access } from '#lib/access.svelte.js';
+	import { fleet } from '#lib/fleet.svelte.js';
 
-	let snapshot = $state<Snapshot | null>(null);
-	let access = $state<AccessConfig>({
-		access: 'path',
-		hostPrefix: 'sluss-',
-		domain: '',
-		repos: [],
-		scopes: []
-	});
-	let connected = $state(false);
+	// One breakpoint, shared with the media queries below, so the table/card switch and
+	// the responsive styles can never disagree about what "narrow" means.
+	const WIDE = '(min-width: 48rem)';
+
+	// Read before the first render, not in onMount: ssr is off, so `window` is already
+	// here and deferring it would paint the narrow layout once on every desktop load.
+	let wide = $state(window.matchMedia(WIDE).matches);
+	let opened = $state(false);
 	let copied = $state('');
 	let busy = $state('');
 	let problem = $state('');
-	let form = $state({ repo: '', scope: '', name: '', agent: 'opencode' });
+	let chosen = $state({ repo: '', scope: '', name: '', agent: 'opencode' });
 
-	let repos = $derived(snapshot?.repos ?? []);
-	let scopeErrors = $derived(snapshot?.scopeErrors ?? []);
+	let repos = $derived(fleet.snapshot?.repos ?? []);
+	let scopeErrors = $derived(fleet.snapshot?.scopeErrors ?? []);
+	// Empty means "whichever is first", the same shape Secrets.svelte uses for scopes:
+	// the configuration arrives after the first render, so nothing can be assigned into
+	// the form up front.
+	let repo = $derived(chosen.repo || access.config.repos?.[0] || '');
+	let scope = $derived(chosen.scope || access.config.scopes?.[0] || '');
+	// On a phone the four controls fill the screen before a single sandbox appears, so
+	// they collapse; on a desktop there is room and the disclosure would only be a click
+	// in the way.
+	let formVisible = $derived(wide || opened);
+	let configured = $derived((access.config.repos?.length ?? 0) > 0);
 
 	onMount(() => {
-		fetch('/api/config')
-			.then((r) => r.json())
-			.then((c: AccessConfig) => {
-				access = c;
-				form.repo = c.repos?.[0] ?? '';
-				form.scope = c.scopes?.[0] ?? '';
-			})
-			.catch(() => {});
-
-		// The whole snapshot arrives on every poll; there is no client-side state to
-		// reconcile because the server holds none either.
-		const events = new EventSource('/api/events');
-		events.addEventListener('fleet', (event) => {
-			snapshot = JSON.parse(event.data);
-			connected = true;
-		});
-		events.onerror = () => (connected = false);
-		return () => events.close();
+		const query = window.matchMedia(WIDE);
+		const sync = () => (wide = query.matches);
+		query.addEventListener('change', sync);
+		return () => query.removeEventListener('change', sync);
 	});
 
 	// OpenCode is reached through sluss. Claude Code and Copilot have their own
@@ -48,9 +43,9 @@
 		if (sandbox.agent === 'claude') return { href: 'https://claude.ai/code', label: 'claude.ai' };
 		if (sandbox.agent === 'copilot') return { href: 'https://github.com/copilot', label: 'github.com' };
 		if (sandbox.agent !== 'opencode' || sandbox.status !== 'running' || !sandbox.webPort) return null;
-		if (access.access === 'host') {
+		if (access.config.access === 'host') {
 			return {
-				href: `${location.protocol}//${access.hostPrefix}${sandbox.name}.${access.domain}/`,
+				href: `${location.protocol}//${access.config.hostPrefix}${sandbox.name}.${access.config.domain}/`,
 				label: 'open'
 			};
 		}
@@ -81,7 +76,7 @@
 			fetch('/api/sandboxes', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(form)
+				body: JSON.stringify({ repo, scope, name: chosen.name, agent: chosen.agent })
 			})
 		);
 	}
@@ -117,32 +112,38 @@
 	}
 </script>
 
-<header>
-	<h1>sluss</h1>
-	<span class="status" class:live={connected}>{connected ? 'live' : 'reconnecting'}</span>
-</header>
+{#if !access.loaded}
+	<!-- The configuration is one request away; saying anything here would only be
+	     replaced a moment later. -->
+{:else if !configured}
+	<p class="muted">No repositories configured — see the <code>repos</code> key in the config file.</p>
+{:else if !formVisible}
+	<button class="disclose" onclick={() => (opened = true)}>New sandbox</button>
+{/if}
 
-<form onsubmit={create}>
-	<select bind:value={form.repo} aria-label="repository">
-		{#each access.repos ?? [] as repo (repo)}
-			<option value={repo}>{repo}</option>
-		{/each}
-	</select>
-	<select bind:value={form.scope} aria-label="scope">
-		{#each access.scopes ?? [] as scope (scope)}
-			<option value={scope}>{scope}</option>
-		{/each}
-	</select>
-	<input bind:value={form.name} placeholder="name" aria-label="sandbox name" />
-	<select bind:value={form.agent} aria-label="agent">
-		<option value="opencode">opencode</option>
-		<option value="claude">claude</option>
-		<option value="copilot">copilot</option>
-	</select>
-	<button type="submit" disabled={busy !== '' || !form.name}>
-		{busy === 'create' ? 'starting…' : 'start'}
-	</button>
-</form>
+{#if access.loaded && configured && formVisible}
+	<form onsubmit={create}>
+		<select value={repo} onchange={(event) => (chosen.repo = event.currentTarget.value)} aria-label="repository">
+			{#each access.config.repos ?? [] as option (option)}
+				<option value={option}>{option}</option>
+			{/each}
+		</select>
+		<select value={scope} onchange={(event) => (chosen.scope = event.currentTarget.value)} aria-label="scope">
+			{#each access.config.scopes ?? [] as option (option)}
+				<option value={option}>{option}</option>
+			{/each}
+		</select>
+		<input bind:value={chosen.name} placeholder="name" aria-label="sandbox name" />
+		<select bind:value={chosen.agent} aria-label="agent">
+			<option value="opencode">opencode</option>
+			<option value="claude">claude</option>
+			<option value="copilot">copilot</option>
+		</select>
+		<button type="submit" disabled={busy !== '' || !chosen.name}>
+			{busy === 'create' ? 'starting…' : 'start'}
+		</button>
+	</form>
+{/if}
 
 {#if problem}
 	<pre class="error">{problem}</pre>
@@ -152,102 +153,122 @@
 	<p class="error"><strong>{scopeError.scope}</strong>: {scopeError.error}</p>
 {/each}
 
-{#if !snapshot}
+{#if !fleet.snapshot}
 	<p class="muted">Waiting for the first poll…</p>
 {:else if repos.length === 0}
 	<p class="muted">No sandboxes in any configured scope.</p>
 {/if}
 
-{#each repos as repo (repo.repo)}
+{#each repos as group (group.repo)}
 	<section>
-		<h2>{repo.name}<span class="muted"> · {repo.repo}</span></h2>
-		<table>
-			<thead>
-				<tr>
-					<th>Sandbox</th>
-					<th>Scope</th>
-					<th>Branch</th>
-					<th>Agent</th>
-					<th>Status</th>
-					<th>Work</th>
-					<th>Connect</th>
-					<th>Terminal</th>
-					<th>Lifecycle</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each repo.sandboxes as sandbox (sandbox.scope + '/' + sandbox.name)}
-					{@const connect = connectTo(sandbox)}
+		<h2>{group.name}<span class="muted"> · {group.repo}</span></h2>
+
+		{#if wide}
+			<table>
+				<thead>
 					<tr>
-						<td>{sandbox.name}</td>
-						<td class="muted">{sandbox.scope}</td>
-						<td>
+						<th>Sandbox</th>
+						<th>Scope</th>
+						<th>Branch</th>
+						<th>Agent</th>
+						<th>Status</th>
+						<th>Work</th>
+						<th>Connect</th>
+						<th>Terminal</th>
+						<th>Lifecycle</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each group.sandboxes as sandbox (sandbox.scope + '/' + sandbox.name)}
+						{@const connect = connectTo(sandbox)}
+						<tr>
+							<td>{sandbox.name}</td>
+							<td class="muted">{sandbox.scope}</td>
+							<td>
+								{#if sandbox.missing}
+									<span class="warn">worktree missing</span>
+								{:else}
+									{sandbox.branch}
+								{/if}
+							</td>
+							<td>{sandbox.agent}</td>
+							<td class:running={sandbox.status === 'running'}>{sandbox.status}</td>
+							<td>
+								{#if sandbox.dirty}<span class="warn">dirty</span>{/if}
+								{#if sandbox.unmerged > 0}<span class="warn">{sandbox.unmerged} unmerged</span>{/if}
+								{#if !sandbox.dirty && sandbox.unmerged === 0 && !sandbox.missing}
+									<span class="muted">clean</span>
+								{/if}
+							</td>
+							<td>
+								{#if connect}
+									<a href={connect.href} target="_blank" rel="noreferrer">{connect.label}</a>
+								{:else}
+									<span class="muted">—</span>
+								{/if}
+							</td>
+							<td>
+								<button onclick={() => copyAttach(sandbox.name)}>
+									{copied === sandbox.name ? 'copied' : 'sluss attach'}
+								</button>
+							</td>
+							<td>
+								{#if sandbox.status === 'running'}
+									<button onclick={() => stop(sandbox)} disabled={busy !== ''}>stop</button>
+								{/if}
+								<button onclick={() => destroy(sandbox)} disabled={busy !== ''}>destroy</button>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		{:else}
+			<!-- The same rows as a stack of cards. Rendered instead of the table, never
+			     alongside it, so there is one of everything in the DOM. -->
+			<ul class="cards">
+				{#each group.sandboxes as sandbox (sandbox.scope + '/' + sandbox.name)}
+					{@const connect = connectTo(sandbox)}
+					<li>
+						<div class="head">
+							<span class="name">{sandbox.name}</span>
+							<span class:running={sandbox.status === 'running'}>{sandbox.status}</span>
+						</div>
+						<p class="meta">
+							<span class="muted">{sandbox.scope}</span> ·
 							{#if sandbox.missing}
 								<span class="warn">worktree missing</span>
 							{:else}
 								{sandbox.branch}
 							{/if}
-						</td>
-						<td>{sandbox.agent}</td>
-						<td class:running={sandbox.status === 'running'}>{sandbox.status}</td>
-						<td>
+							· {sandbox.agent}
+						</p>
+						<p class="work">
 							{#if sandbox.dirty}<span class="warn">dirty</span>{/if}
 							{#if sandbox.unmerged > 0}<span class="warn">{sandbox.unmerged} unmerged</span>{/if}
 							{#if !sandbox.dirty && sandbox.unmerged === 0 && !sandbox.missing}
 								<span class="muted">clean</span>
 							{/if}
-						</td>
-						<td>
+						</p>
+						<div class="actions">
 							{#if connect}
 								<a href={connect.href} target="_blank" rel="noreferrer">{connect.label}</a>
-							{:else}
-								<span class="muted">—</span>
 							{/if}
-						</td>
-						<td>
 							<button onclick={() => copyAttach(sandbox.name)}>
 								{copied === sandbox.name ? 'copied' : 'sluss attach'}
 							</button>
-						</td>
-						<td>
 							{#if sandbox.status === 'running'}
 								<button onclick={() => stop(sandbox)} disabled={busy !== ''}>stop</button>
 							{/if}
 							<button onclick={() => destroy(sandbox)} disabled={busy !== ''}>destroy</button>
-						</td>
-					</tr>
+						</div>
+					</li>
 				{/each}
-			</tbody>
-		</table>
+			</ul>
+		{/if}
 	</section>
 {/each}
 
-<Secrets scopes={access.scopes ?? []} />
-<Kits />
-
 <style>
-	:global(body) {
-		margin: 0;
-		padding: 1.5rem;
-		font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
-		color: #e7e7e7;
-		background: #16181d;
-	}
-	header {
-		display: flex;
-		align-items: baseline;
-		gap: 0.75rem;
-		margin-bottom: 1.5rem;
-	}
-	h1 {
-		font-size: 1.1rem;
-		margin: 0;
-	}
-	h2 {
-		font-size: 0.95rem;
-		font-weight: 600;
-		margin: 1.5rem 0 0.5rem;
-	}
 	table {
 		width: 100%;
 		border-collapse: collapse;
@@ -263,26 +284,8 @@
 		padding: 0.4rem 0.6rem 0.4rem 0;
 		border-bottom: 1px solid #21242a;
 	}
-	.muted {
-		color: #8b8f98;
-	}
-	.warn {
-		color: #e0a458;
-		margin-right: 0.5rem;
-	}
 	.running {
 		color: #7bc47f;
-	}
-	.status {
-		color: #8b8f98;
-	}
-	.status.live {
-		color: #7bc47f;
-	}
-	.error {
-		color: #e06c75;
-		white-space: pre-wrap;
-		font: inherit;
 	}
 	form {
 		display: flex;
@@ -290,25 +293,60 @@
 		flex-wrap: wrap;
 		margin-bottom: 1rem;
 	}
-	select,
-	input {
-		font: inherit;
-		color: #e7e7e7;
-		background: #23262d;
+	.disclose {
+		margin-bottom: 1rem;
+	}
+	.cards {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+	.cards li {
+		border: 1px solid #2a2d34;
+		border-radius: 6px;
+		padding: 0.75rem;
+	}
+	.head {
+		display: flex;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+	.name {
+		font-weight: 600;
+		/* Sandbox names, branches and repo paths are long and unspaced; without this a
+		   single one widens the card past the viewport. */
+		overflow-wrap: anywhere;
+	}
+	.meta,
+	.work {
+		margin: 0.25rem 0 0;
+		overflow-wrap: anywhere;
+	}
+	.work:empty {
+		display: none;
+	}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+	}
+	/* Every control in a card is a thumb target, including the anchor, which is why it
+	   is boxed like the buttons beside it. */
+	.actions > * {
+		flex: 1 1 auto;
+		min-height: 44px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+	}
+	.actions a {
 		border: 1px solid #333842;
 		border-radius: 4px;
-		padding: 0.15rem 0.4rem;
-	}
-	a {
-		color: #6cb6ff;
-	}
-	button {
-		font: inherit;
-		color: #e7e7e7;
-		background: #23262d;
-		border: 1px solid #333842;
-		border-radius: 4px;
-		padding: 0.15rem 0.5rem;
-		cursor: pointer;
+		text-decoration: none;
 	}
 </style>

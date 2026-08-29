@@ -101,3 +101,8 @@ read path must tolerate a missing sandbox or a vanished worktree and report it r
   `internal/server`; and adapter-static empties `web/dashboard/build/` on every build, so the
   `.gitkeep` that keeps the embed compiling from a fresh clone lives in `web/dashboard/static/` and
   is copied back in by the build.
+- `web/dashboard/src/app.css` holds the styles shared across routes, but a Svelte component that
+  styles the same element itself wins: scoped rules compile to `textarea.svelte-xxxx`, which
+  outranks a bare `textarea` selector at any breakpoint. Restate the shared rule in the component
+  rather than assuming app.css reaches it, and check the built CSS under
+  `web/dashboard/build/_app/immutable/assets/` when a shared style appears not to apply.

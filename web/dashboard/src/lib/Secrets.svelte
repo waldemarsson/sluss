@@ -125,4 +125,18 @@
 		flex-wrap: wrap;
 		margin-bottom: 0.75rem;
 	}
+	code {
+		overflow-wrap: anywhere;
+	}
+	/* Side by side there is no room for a scope, a name and a value on a phone, and a
+	   secret value is the last field anyone wants to type into a squeezed box. */
+	@media (max-width: 47.999rem) {
+		form {
+			flex-direction: column;
+			align-items: stretch;
+		}
+		li {
+			gap: 0.75rem;
+		}
+	}
 </style>

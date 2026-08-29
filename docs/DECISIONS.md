@@ -321,3 +321,34 @@ every use — it catches the misuse, not the drift, so change both sides togethe
 
 **Amends:** D17's note that `jsconfig.json` supplies the `include`/`exclude` — that file is now
 `tsconfig.json`; everything else in D17 stands.
+
+---
+
+## D19 — Dashboard routes prerender to directory indexes
+
+**Chosen:** `trailingSlash: 'always'` in `web/dashboard/src/routes/+layout.ts`, so every route
+prerenders to `<route>/index.html`. `slussd` gained no routing code.
+
+**Why:** the dashboard grew from one page to `/`, `/config/secrets` and `/config/kits` (the fleet
+is the home page; secrets and kits moved behind a top bar). `internal/server` serves the embedded
+build with a bare `http.FileServerFS` and no SPA fallback, and that resolves a directory index but
+not a sibling `.html` file — so SvelteKit's default output, `config/secrets.html`, 404s for anyone
+who bookmarks the URL or reloads the page. With the trailing slash the build emits
+`config/secrets/index.html`, which the file server serves directly and, for the slash-less form,
+redirects to.
+
+**Rejected:** *an SPA fallback handler in `internal/server`* — serve `index.html` for any unmatched
+path that is not `/api/` or `/s/`. It works, but it is a handler plus its edge cases in place of one
+config line, and it makes a genuine 404 indistinguishable from a route.
+
+**This is load-bearing and quiet.** Nothing fails at build time if the option is removed: the
+dashboard still builds, `npm run check` still passes, and client-side navigation still works,
+because SvelteKit routes in the browser. Only a cold request for a nested URL breaks, which is
+exactly the path a phone bookmark takes. `TestBuiltDashboardNestsConfigRoutes` in
+`web/embed_test.go` asserts the built tree still has the nested indexes, and
+`TestStaticAssets` covers both URL forms through the real server; those two tests are the guard.
+
+**Consequence for new routes:** any route added under `src/routes/` inherits this and needs
+nothing. A route that must be reachable cold and is *not* linked from another page still needs to
+be prerendered — the crawler is what discovers them.
+

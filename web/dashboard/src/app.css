@@ -1,0 +1,90 @@
+/* Everything shared by more than one route. Route-local rules stay scoped inside their
+   own component. This file exists because the split gave the shared classes more than
+   one home: `.muted`, `.warn` and `.error` were already used inside Secrets.svelte and
+   Kits.svelte, where the scoped copies in +page.svelte never reached them. */
+
+:root {
+	color-scheme: dark;
+}
+
+/* A full-width control with padding and a border is wider than its container without
+   this, which is the usual reason a page scrolls sideways on a phone. */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	padding: 1.5rem;
+	/* The NAS dashboard is read on a phone, where the bottom of the viewport is under
+	   the home indicator and the sides are under the rounded corners in landscape. */
+	padding-left: max(1.5rem, env(safe-area-inset-left));
+	padding-right: max(1.5rem, env(safe-area-inset-right));
+	padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+	font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+	color: #e7e7e7;
+	background: #16181d;
+}
+
+h1 {
+	font-size: 1.1rem;
+	margin: 0;
+}
+
+h2 {
+	font-size: 0.95rem;
+	font-weight: 600;
+	margin: 1.5rem 0 0.5rem;
+}
+
+a {
+	color: #6cb6ff;
+}
+
+button,
+input,
+select,
+textarea {
+	font: inherit;
+	color: #e7e7e7;
+	background: #23262d;
+	border: 1px solid #333842;
+	border-radius: 4px;
+	padding: 0.15rem 0.5rem;
+}
+
+button {
+	cursor: pointer;
+}
+
+.muted {
+	color: #8b8f98;
+}
+
+.warn {
+	color: #e0a458;
+	/* Work flags sit directly beside each other ("dirty" then "2 unmerged"). */
+	margin-right: 0.5rem;
+}
+
+.error {
+	color: #e06c75;
+	white-space: pre-wrap;
+	font: inherit;
+}
+
+/* Below the breakpoint the dashboard's table/card switch uses. Every control becomes a
+   thumb target, and every form control at least 16px — anything smaller makes iOS
+   Safari zoom the page on focus and leave it zoomed. */
+@media (max-width: 47.999rem) {
+	button,
+	input,
+	select,
+	textarea {
+		font-size: 16px;
+		min-height: 44px;
+		padding: 0.35rem 0.6rem;
+	}
+}

@@ -19,6 +19,21 @@ func TestAssetsOpen(t *testing.T) {
 	}
 }
 
+// The dashboard's nested routes must prerender to a directory index rather than a
+// sibling .html file: slussd serves the build with a plain http.FileServerFS, which
+// resolves the first and not the second. This is what proves `trailingSlash: 'always'`
+// in web/dashboard/src/routes/+layout.ts is still in effect.
+func TestBuiltDashboardNestsConfigRoutes(t *testing.T) {
+	if _, err := fs.Stat(web.Assets, "index.html"); err != nil {
+		t.Skip("no dashboard build in this tree (run: task web)")
+	}
+	for _, page := range []string{"config/index.html", "config/secrets/index.html", "config/kits/index.html"} {
+		if _, err := fs.Stat(web.Assets, page); err != nil {
+			t.Errorf("%s missing from the build: %v", page, err)
+		}
+	}
+}
+
 // When a dashboard has been built, its entry point must be servable.
 func TestBuiltDashboardHasAnIndex(t *testing.T) {
 	body, err := fs.ReadFile(web.Assets, "index.html")

@@ -93,9 +93,14 @@ There is **no authentication**, by decision (D15): reachability is the boundary,
 false unless the network in front of it is one you trust. Mutating requests do reject cross-site
 browser calls, but that closes drive-by requests only — it is not auth.
 
-The dashboard also offers a write-only secrets pane per scope (names are listed, values only ever
-go in) and a plain-text editor for each kit's `spec.yaml`, with the kits directory's git status
-beside it. Committing kits stays a manual step.
+The fleet is the dashboard's home page; a top bar leads to the configuration areas at
+`/config/secrets` and `/config/kits`. Secrets are write-only per scope (names are listed, values
+only ever go in), and each kit's `spec.yaml` gets a plain-text editor with the kits directory's
+git status beside it. Committing kits stays a manual step.
+
+Both work on a phone, which is how the NAS is usually reached: the fleet table becomes a card per
+sandbox on a narrow screen, and the create form collapses behind a **New sandbox** button so the
+sandboxes are what you see first.
 
 ## Lightweight sbx workflow
 
