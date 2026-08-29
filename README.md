@@ -376,6 +376,7 @@ against.
 | [docs/SPEC.md](docs/SPEC.md) | The design as written before the GUI work |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What shipped, what is still unverified |
 | [docs/SPIKE.md](docs/SPIKE.md) | sbx assumptions, verified before coding |
+| [docs/LIFECYCLE-RUNBOOK.md](docs/LIFECYCLE-RUNBOOK.md) | Checking the lifecycle against a real sbx, on a host that has one |
 | [docs/PROFILES.md](docs/PROFILES.md) | A deferred per-client profile design |
 | [docs/BACKGROUND.md](docs/BACKGROUND.md) | How the design got here, and an honest read |
 | [AGENTS.md](AGENTS.md) | Instructions for coding agents |
