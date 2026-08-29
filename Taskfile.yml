@@ -1,7 +1,7 @@
 version: "3"
 
 vars:
-  BIN: dist/slussd
+  BIN: dist/sluss
 
 env:
   CGO_ENABLED: "0"
@@ -25,10 +25,10 @@ tasks:
       VERSION:
         sh: git describe --tags --always --dirty 2>/dev/null || echo dev
     cmds:
-      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}} ./cmd/slussd
+      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}} ./cmd/sluss
 
   build:linux:
-    desc: Cross-compile for the NAS
+    desc: Cross-compile for a Linux host
     deps: [web]
     vars:
       VERSION:
@@ -37,12 +37,13 @@ tasks:
       GOOS: linux
       GOARCH: amd64
     cmds:
-      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}}-linux ./cmd/slussd
+      - go build -ldflags "-X main.version={{.VERSION}}" -o {{.BIN}}-linux ./cmd/sluss
 
   install:
-    desc: Download and install the lightweight sluss script to ~/.local/bin
+    desc: Install the locally built binary to ~/.local/bin
+    deps: [build]
     cmds:
-      - ./scripts/install.sh
+      - install -m 0755 {{.BIN}} "${SLUSS_INSTALL_DIR:-$HOME/.local/bin}/sluss"
 
   spike:proxy:
     desc: Cross-compile the M0 spike proxy for the host Mac (docs/SPIKE-RUNBOOK.md)
@@ -97,10 +98,10 @@ tasks:
       - npm run test:unit
       - npm run test:component
 
-  test:script:
-    desc: Black-box tests for scripts/sluss against a stubbed sbx
+  test:install:
+    desc: Black-box tests for the install and uninstall scripts, against a file:// remote
     cmds:
-      - ./scripts/test-sluss
+      - ./scripts/test-install
 
   check:
     desc: What must pass before finishing a change (AGENTS.md)
@@ -108,9 +109,10 @@ tasks:
       - task: fmt:check
       - task: vet
       - task: test
-      - bash -n scripts/install.sh scripts/sluss scripts/test-sluss
-      - shellcheck scripts/install.sh scripts/sluss scripts/test-sluss
-      - task: test:script
+      - sh -n scripts/install.sh scripts/uninstall.sh
+      - bash -n scripts/test-install
+      - shellcheck scripts/install.sh scripts/uninstall.sh scripts/test-install
+      - task: test:install
 
   clean:
     cmds:

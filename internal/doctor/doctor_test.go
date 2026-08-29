@@ -2,7 +2,6 @@ package doctor_test
 
 import (
 	"context"
-	"errors"
 	"net"
 	"os"
 	"os/exec"
@@ -16,17 +15,6 @@ import (
 	"github.com/waldemarsson/sluss/internal/sbxstub"
 )
 
-// fakeScript answers "help <sub>" for the subcommands the GUI needs.
-func fakeScript(t *testing.T, supported string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "sluss")
-	body := "#!/bin/sh\ncase \"$2\" in " + supported + ") exit 0 ;; *) exit 2 ;; esac\n"
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-		t.Fatalf("writing fake script: %v", err)
-	}
-	return path
-}
-
 func find(t *testing.T, report doctor.Report, name string) doctor.Check {
 	t.Helper()
 	for _, check := range report.Checks {
@@ -38,7 +26,7 @@ func find(t *testing.T, report doctor.Report, name string) doctor.Check {
 	return doctor.Check{}
 }
 
-func healthy(t *testing.T) (*config.Config, *sbx.Client, string) {
+func healthy(t *testing.T) (*config.Config, *sbx.Client) {
 	t.Helper()
 	stub := sbxstub.Install(t, sbxstub.Empty)
 	base := t.TempDir()
@@ -54,7 +42,7 @@ func healthy(t *testing.T) (*config.Config, *sbx.Client, string) {
 	if err := os.MkdirAll(cfg.KitsDir, 0o755); err != nil {
 		t.Fatalf("creating kits dir: %v", err)
 	}
-	return cfg, &sbx.Client{Bin: stub.Bin}, fakeScript(t, "start|stop|destroy|path")
+	return cfg, &sbx.Client{Bin: stub.Bin}
 }
 
 // freePort asks the kernel for a port that is currently unused.
@@ -69,14 +57,14 @@ func freePort(t *testing.T) int {
 }
 
 func TestHealthyDeploymentPasses(t *testing.T) {
-	cfg, client, scriptPath := healthy(t)
+	cfg, client := healthy(t)
 
-	report := doctor.Run(context.Background(), cfg, client, scriptPath, nil)
+	report := doctor.Run(context.Background(), cfg, client)
 
 	if report.Failed() {
 		t.Fatalf("healthy deployment reported a failure: %+v", report.Checks)
 	}
-	for _, name := range []string{"listener", "access", "sbx", "scope personal", "sluss script", "kits"} {
+	for _, name := range []string{"listener", "access", "sbx", "scope personal", "git", "worktree root", "kits"} {
 		if find(t, report, name).Name == "" {
 			t.Errorf("missing check %q", name)
 		}
@@ -90,10 +78,10 @@ func TestHealthyDeploymentPasses(t *testing.T) {
 }
 
 func TestExposedBindingIsSaidPlainly(t *testing.T) {
-	cfg, client, scriptPath := healthy(t)
+	cfg, client := healthy(t)
 	cfg.LAN = true
 
-	report := doctor.Run(context.Background(), cfg, client, scriptPath, nil)
+	report := doctor.Run(context.Background(), cfg, client)
 
 	detail := find(t, report, "listener").Detail
 	if !strings.Contains(detail, "exposed") || !strings.Contains(detail, "no authentication") {
@@ -101,10 +89,10 @@ func TestExposedBindingIsSaidPlainly(t *testing.T) {
 	}
 }
 
-// Running doctor against a slussd that is already serving is the normal case, not
+// Running doctor against a sluss that is already serving is the normal case, not
 // a broken deployment: it must not report failure.
 func TestPortInUseAndAnsweringWarns(t *testing.T) {
-	cfg, client, scriptPath := healthy(t)
+	cfg, client := healthy(t)
 	listener, err := net.Listen("tcp", cfg.BindAddr())
 	if err != nil {
 		t.Fatalf("occupying the port: %v", err)
@@ -120,7 +108,7 @@ func TestPortInUseAndAnsweringWarns(t *testing.T) {
 		}
 	}()
 
-	report := doctor.Run(context.Background(), cfg, client, scriptPath, nil)
+	report := doctor.Run(context.Background(), cfg, client)
 
 	check := find(t, report, "listener")
 	if check.State != doctor.Warn {
@@ -138,10 +126,10 @@ func TestPortInUseAndAnsweringWarns(t *testing.T) {
 // here is one config.Load would refuse; it is used precisely because it can neither
 // be bound nor dialled on any platform.
 func TestUnbindableAddressFails(t *testing.T) {
-	cfg, client, scriptPath := healthy(t)
+	cfg, client := healthy(t)
 	cfg.Port = 70000
 
-	report := doctor.Run(context.Background(), cfg, client, scriptPath, nil)
+	report := doctor.Run(context.Background(), cfg, client)
 
 	check := find(t, report, "listener")
 	if check.State != doctor.Fail || !strings.Contains(check.Detail, cfg.BindAddr()) {
@@ -153,13 +141,13 @@ func TestUnbindableAddressFails(t *testing.T) {
 }
 
 func TestBrokenSbxIsReportedPerScope(t *testing.T) {
-	cfg, client, scriptPath := healthy(t)
+	cfg, client := healthy(t)
 	cfg.AppNames = []string{"personal", "work"}
 	stub := sbxstub.Install(t, sbxstub.Empty)
 	client.Bin = stub.Bin
 	stub.FailScope(t, "work", "Error: not logged in")
 
-	report := doctor.Run(context.Background(), cfg, client, scriptPath, nil)
+	report := doctor.Run(context.Background(), cfg, client)
 
 	if find(t, report, "scope personal").State != doctor.OK {
 		t.Error("a healthy scope was reported as broken")
@@ -171,9 +159,9 @@ func TestBrokenSbxIsReportedPerScope(t *testing.T) {
 }
 
 func TestMissingSbxFails(t *testing.T) {
-	cfg, _, scriptPath := healthy(t)
+	cfg, _ := healthy(t)
 
-	report := doctor.Run(context.Background(), cfg, &sbx.Client{Bin: "/nonexistent/sbx"}, scriptPath, nil)
+	report := doctor.Run(context.Background(), cfg, &sbx.Client{Bin: "/nonexistent/sbx"})
 
 	if check := find(t, report, "sbx"); check.State != doctor.Fail {
 		t.Errorf("sbx check = %+v, want a failure", check)
@@ -183,26 +171,60 @@ func TestMissingSbxFails(t *testing.T) {
 	}
 }
 
-func TestScriptChecks(t *testing.T) {
-	cfg, client, _ := healthy(t)
+// git and the worktree root replaced the old script check: they are what lifecycle
+// now needs, and a deployment missing either fails at the first "sluss start"
+// otherwise.
+func TestGitAndWorktreeRootAreChecked(t *testing.T) {
+	cfg, client := healthy(t)
 
-	missing := doctor.Run(context.Background(), cfg, client, "", errors.New("looked in ~/.local/bin/sluss"))
-	if check := find(t, missing, "sluss script"); check.State != doctor.Fail || !strings.Contains(check.Detail, ".local/bin/sluss") {
-		t.Errorf("script check = %+v, want the resolution error", check)
+	report := doctor.Run(context.Background(), cfg, client)
+
+	if check := find(t, report, "git"); check.State != doctor.OK {
+		t.Errorf("git check = %+v, want ok", check)
 	}
+	if check := find(t, report, "worktree root"); check.State != doctor.OK {
+		t.Errorf("worktree root check = %+v, want ok", check)
+	}
+}
 
-	old := doctor.Run(context.Background(), cfg, client, fakeScript(t, "start|stop"), nil)
-	if check := find(t, old, "sluss script"); check.State != doctor.Fail || !strings.Contains(check.Detail, "destroy") {
-		t.Errorf("script check = %+v, want the unsupported subcommand named", check)
+func TestUnwritableWorktreeRootFails(t *testing.T) {
+	cfg, client := healthy(t)
+	// A file where the directory should be: MkdirAll cannot make it, which is the
+	// same failure a read-only mount produces and needs no root to arrange.
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocked, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg.WorktreeRoot = filepath.Join(blocked, "worktrees")
+
+	report := doctor.Run(context.Background(), cfg, client)
+
+	check := find(t, report, "worktree root")
+	if check.State != doctor.Fail {
+		t.Errorf("worktree root check = %+v, want a failure", check)
+	}
+	if !strings.Contains(check.Detail, cfg.WorktreeRoot) {
+		t.Errorf("detail = %q, want the path named", check.Detail)
+	}
+}
+
+func TestUnconfiguredWorktreeRootFails(t *testing.T) {
+	cfg, client := healthy(t)
+	cfg.WorktreeRoot = ""
+
+	report := doctor.Run(context.Background(), cfg, client)
+
+	if check := find(t, report, "worktree root"); check.State != doctor.Fail {
+		t.Errorf("worktree root check = %+v, want a failure", check)
 	}
 }
 
 func TestRepositoryChecks(t *testing.T) {
-	cfg, client, scriptPath := healthy(t)
+	cfg, client := healthy(t)
 	notARepo := t.TempDir()
 	cfg.Repos = append(cfg.Repos, notARepo)
 
-	report := doctor.Run(context.Background(), cfg, client, scriptPath, nil)
+	report := doctor.Run(context.Background(), cfg, client)
 
 	if check := find(t, report, "repository "+notARepo); check.State != doctor.Fail {
 		t.Errorf("check = %+v, want a failure for a non-checkout", check)
@@ -210,9 +232,9 @@ func TestRepositoryChecks(t *testing.T) {
 }
 
 func TestKitsWarnWithoutAGitRepository(t *testing.T) {
-	cfg, client, scriptPath := healthy(t)
+	cfg, client := healthy(t)
 
-	report := doctor.Run(context.Background(), cfg, client, scriptPath, nil)
+	report := doctor.Run(context.Background(), cfg, client)
 
 	check := find(t, report, "kits")
 	if check.State != doctor.Warn {
@@ -220,5 +242,25 @@ func TestKitsWarnWithoutAGitRepository(t *testing.T) {
 	}
 	if report.Failed() {
 		t.Error("a warning made the whole report fail")
+	}
+}
+
+// doctor is a diagnostic: it must not create the worktree root it reports on.
+func TestWorktreeRootCheckCreatesNothing(t *testing.T) {
+	cfg, client := healthy(t)
+	base := t.TempDir()
+	cfg.WorktreeRoot = filepath.Join(base, "not", "there", "yet")
+
+	report := doctor.Run(context.Background(), cfg, client)
+
+	check := find(t, report, "worktree root")
+	if check.State != doctor.OK {
+		t.Errorf("worktree root check = %+v, want ok for a creatable path", check)
+	}
+	if !strings.Contains(check.Detail, "will be created") {
+		t.Errorf("detail = %q, want it to say the root does not exist yet", check.Detail)
+	}
+	if _, err := os.Stat(cfg.WorktreeRoot); err == nil {
+		t.Errorf("doctor created %s", cfg.WorktreeRoot)
 	}
 }

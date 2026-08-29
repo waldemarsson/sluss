@@ -11,46 +11,99 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
 
 	"github.com/waldemarsson/sluss/internal/config"
 	"github.com/waldemarsson/sluss/internal/fleet"
+	"github.com/waldemarsson/sluss/internal/lifecycle"
 	"github.com/waldemarsson/sluss/internal/sbx"
 	"github.com/waldemarsson/sluss/internal/sbxstub"
-	"github.com/waldemarsson/sluss/internal/script"
 	"github.com/waldemarsson/sluss/internal/server"
 )
 
-// runner points at a shell script that records what it was asked to do, so server
-// tests assert on the request/response contract rather than on git behaviour —
-// internal/script already tests the real script.
-func runner(t *testing.T) *script.Runner {
-	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "sluss")
-	argv := filepath.Join(dir, "argv")
-	body := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"" + argv + "\"\n" +
-		"printf 'pwd=%s\\n' \"$PWD\" >> \"" + argv + "\"\n" +
-		"if [ \"$1\" = destroy ]; then\n" +
-		"  case \" $* \" in *\" --force \"*) exit 0;; esac\n" +
-		"  echo 'error: agent/web has uncommitted changes; commit them or use --force' >&2; exit 1\n" +
-		"fi\n"
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-		t.Fatalf("writing the fake script: %v", err)
-	}
-	t.Setenv("SLUSS_FAKE_ARGV", filepath.Join(dir, "argv"))
-	return &script.Runner{Script: path, WorktreeRoot: "/w"}
+// fakeRunner records what the routes asked lifecycle to do, so these tests assert
+// on the request/response contract — guards, status codes, JSON shape — rather than
+// on git behaviour, which internal/lifecycle already covers against a real
+// repository. It records in the shape a person would type, because that is what the
+// assertions are actually about.
+type fakeRunner struct {
+	mu     sync.Mutex
+	log    strings.Builder
+	delay  time.Duration
+	marker string
 }
+
+func (f *fakeRunner) record(command, repo string) {
+	if f.delay > 0 {
+		time.Sleep(f.delay)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fmt.Fprintf(&f.log, "%s\npwd=%s\n", command, repo)
+	if f.marker != "" {
+		_ = os.WriteFile(f.marker, nil, 0o644)
+	}
+}
+
+func (f *fakeRunner) recorded() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.log.String()
+}
+
+func (f *fakeRunner) Start(_ context.Context, opts lifecycle.StartOpts) (lifecycle.Result, error) {
+	command := "start " + opts.Name
+	if len(opts.Extra) > 0 {
+		command += " " + strings.Join(opts.Extra, " ")
+	}
+	f.record(command, opts.Repo)
+	return lifecycle.Result{}, nil
+}
+
+func (f *fakeRunner) Stop(_ context.Context, repo, _ string, names ...string) (lifecycle.Result, error) {
+	f.record("stop "+strings.Join(names, " "), repo)
+	return lifecycle.Result{}, nil
+}
+
+// Destroy stands in for the real refusal on dirty or unmerged work: without force
+// it declines, and that refusal is what the routes must surface unchanged.
+func (f *fakeRunner) Destroy(_ context.Context, repo, _, name string, force bool) (lifecycle.Result, error) {
+	command := "destroy " + name
+	if force {
+		command += " --force"
+	}
+	f.record(command, repo)
+	if force {
+		return lifecycle.Result{}, nil
+	}
+	return lifecycle.Result{
+		ExitCode: 1,
+		Stderr:   "error: agent/" + name + " has uncommitted changes; commit them or use --force\n",
+	}, nil
+}
+
+// runner installs a fresh recorder for one test and returns it.
+func runner(t *testing.T) *fakeRunner {
+	t.Helper()
+	f := &fakeRunner{}
+	currentRunner = f
+	t.Cleanup(func() { currentRunner = nil })
+	return f
+}
+
+// currentRunner is what recordedArgv reads, so the existing assertions keep their
+// shape without every test threading the recorder through.
+var currentRunner *fakeRunner
 
 func recordedArgv(t *testing.T) string {
 	t.Helper()
-	body, err := os.ReadFile(os.Getenv("SLUSS_FAKE_ARGV"))
-	if err != nil {
+	if currentRunner == nil {
 		return ""
 	}
-	return string(body)
+	return currentRunner.recorded()
 }
 
 // Shaped like a real dashboard build: the nested routes prerender to a directory
@@ -880,23 +933,17 @@ func TestKitRoutesRefuseBadNames(t *testing.T) {
 	}
 }
 
-// slowRunner is a script that takes long enough for a client to give up mid-run,
-// and records that it finished anyway.
-func slowRunner(t *testing.T) (*script.Runner, string) {
+// slowRunner takes long enough for a client to give up mid-run, and records that
+// it finished anyway.
+func slowRunner(t *testing.T) (*fakeRunner, string) {
 	t.Helper()
-	dir := t.TempDir()
-	marker := filepath.Join(dir, "finished")
-	path := filepath.Join(dir, "sluss")
-	body := "#!/bin/sh\nsleep 0.4\ntouch \"" + marker + "\"\n"
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-		t.Fatalf("writing the slow script: %v", err)
-	}
-	return &script.Runner{Script: path, WorktreeRoot: "/w"}, marker
+	marker := filepath.Join(t.TempDir(), "finished")
+	return &fakeRunner{delay: 400 * time.Millisecond, marker: marker}, marker
 }
 
-// A browser that disconnects mid-create must not kill the script: it would be
-// killed between "git worktree add" and "sbx create", and the script's unwind only
-// runs when sbx itself fails.
+// A browser that disconnects mid-create must not cancel the run: it would be
+// abandoned between "git worktree add" and "sbx create", and the unwind only runs
+// when sbx itself fails.
 func TestLifecycleOutlivesTheRequestThatStartedIt(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "mercurius")
@@ -927,17 +974,17 @@ func TestLifecycleOutlivesTheRequestThatStartedIt(t *testing.T) {
 		}
 	}()
 	time.Sleep(50 * time.Millisecond)
-	cancel() // the tab closes while the script is still running
+	cancel() // the tab closes while the run is still going
 	<-done
 
 	deadline := time.After(5 * time.Second)
 	for {
 		if _, err := os.Stat(marker); err == nil {
-			return // the script ran to completion
+			return // the run completed
 		}
 		select {
 		case <-deadline:
-			t.Fatal("the script was killed when the client disconnected")
+			t.Fatal("the run was abandoned when the client disconnected")
 		case <-time.After(20 * time.Millisecond):
 		}
 	}

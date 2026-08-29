@@ -21,15 +21,15 @@ import (
 	"github.com/waldemarsson/sluss/internal/config"
 	"github.com/waldemarsson/sluss/internal/fleet"
 	"github.com/waldemarsson/sluss/internal/kits"
+	"github.com/waldemarsson/sluss/internal/lifecycle"
 	"github.com/waldemarsson/sluss/internal/proxy"
 	"github.com/waldemarsson/sluss/internal/sbx"
-	"github.com/waldemarsson/sluss/internal/script"
 )
 
 // heartbeat keeps an idle SSE connection from being closed by an intermediary.
 const heartbeat = 15 * time.Second
 
-// lifecycleTimeout bounds a script run. It is generous because "sbx create" can
+// lifecycleTimeout bounds one lifecycle run. It is generous because "sbx create" can
 // pull an image, and the alternative — cancelling halfway — is what leaves an
 // orphan worktree behind.
 const lifecycleTimeout = 30 * time.Minute
@@ -39,14 +39,26 @@ const lifecycleTimeout = 30 * time.Minute
 type Server struct {
 	cfg    *config.Config
 	poller *fleet.Poller
-	runner *script.Runner
+	runner Lifecycle
 	client *sbx.Client
 	assets fs.FS
 }
 
-// New builds the server. The runner drives lifecycle through scripts/sluss; the sbx
+// Lifecycle is the part of *lifecycle.Runner the HTTP routes drive.
+//
+// It is an interface because these routes' tests are about the request/response
+// contract — guards, status codes, the shape of the JSON — not about worktrees, and
+// a fake here keeps them from needing a real git repository and a real sbx. It is
+// declared where it is consumed, which is the Go convention.
+type Lifecycle interface {
+	Start(ctx context.Context, opts lifecycle.StartOpts) (lifecycle.Result, error)
+	Stop(ctx context.Context, repo, appName string, names ...string) (lifecycle.Result, error)
+	Destroy(ctx context.Context, repo, appName, name string, force bool) (lifecycle.Result, error)
+}
+
+// New builds the server. The runner performs sandbox lifecycle; the sbx
 // client is used directly only for secrets.
-func New(cfg *config.Config, poller *fleet.Poller, runner *script.Runner, client *sbx.Client, assets fs.FS) *Server {
+func New(cfg *config.Config, poller *fleet.Poller, runner Lifecycle, client *sbx.Client, assets fs.FS) *Server {
 	return &Server{cfg: cfg, poller: poller, runner: runner, client: client, assets: assets}
 }
 
@@ -134,10 +146,10 @@ func isJSON(header string) bool {
 	return err == nil && mediaType == "application/json"
 }
 
-// lifecycleContext detaches a script run from the request that started it, so
+// lifecycleContext detaches a lifecycle run from the request that started it, so
 // closing the browser tab cannot SIGKILL "sluss start" between creating the
-// worktree and creating the sandbox — the script's unwind only runs when sbx
-// itself fails, never when the script is killed.
+// worktree and creating the sandbox — the unwind only runs when sbx itself fails,
+// never when the operation is cancelled part-way.
 func lifecycleContext(r *http.Request) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(r.Context()), lifecycleTimeout)
 }
@@ -231,7 +243,7 @@ func writeEvent(w http.ResponseWriter, rc *http.ResponseController, snap *fleet.
 	return rc.Flush() == nil
 }
 
-// handleCreate starts a sandbox by running scripts/sluss in the chosen repository.
+// handleCreate starts a sandbox in the chosen repository.
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Repo  string   `json:"repo"`
@@ -246,7 +258,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Only configured repositories and scopes are reachable: the browser must not
-	// be able to point the script at an arbitrary directory.
+	// be able to point lifecycle at an arbitrary directory.
 	if !s.cfg.HasRepo(body.Repo) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("%q is not a configured repository", body.Repo))
 		return
@@ -264,7 +276,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := lifecycleContext(r)
 	defer cancel()
-	result, err := s.runner.Start(ctx, script.StartOpts{
+	result, err := s.runner.Start(ctx, lifecycle.StartOpts{
 		Repo: body.Repo, Name: body.Name, Agent: body.Agent, AppName: body.Scope, Extra: extra,
 	})
 	writeResult(w, result, err)
@@ -299,13 +311,13 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	// The agent is carried over so a sandbox whose worktree has gone missing is
 	// recreated as what it was, rather than as the configured default.
-	result, err := s.runner.Start(ctx, script.StartOpts{
+	result, err := s.runner.Start(ctx, lifecycle.StartOpts{
 		Repo: sandbox.Repo, Name: sandbox.Name, Agent: sandbox.Agent, AppName: sandbox.Scope,
 	})
 	writeResult(w, result, err)
 }
 
-// handleDestroy defaults to the script's refusal on dirty or unmerged work, which
+// handleDestroy defaults to the refusal on dirty or unmerged work, which
 // reaches the user unchanged. "?force=true" — and only that exact value — discards
 // it instead; the dashboard confirms every destroy and arms force per sandbox (D20).
 func (s *Server) handleDestroy(w http.ResponseWriter, r *http.Request) {
@@ -507,9 +519,9 @@ func (s *Server) scopeOf(w http.ResponseWriter, r *http.Request) (string, bool) 
 	return scope, true
 }
 
-// writeResult reports a script run. A refusal is the script's answer, so it keeps
-// the script's own message and comes back as 409 rather than 500.
-func writeResult(w http.ResponseWriter, result script.Result, err error) {
+// writeResult reports one lifecycle run. A refusal is an answer rather than a
+// fault, so it keeps its own message and comes back as 409 rather than 500.
+func writeResult(w http.ResponseWriter, result lifecycle.Result, err error) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+# Black-box tests for scripts/install.sh and scripts/uninstall.sh.
+#
+# The release is faked on disk and served over file://, which curl handles, so the
+# real scripts run unchanged and offline. Assertions are made against what ends up
+# in the install directory, never against the network.
+
+set -u
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+install_sh="$here/install.sh"
+uninstall_sh="$here/uninstall.sh"
+
+failures=0
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+sha256() {
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$1" | cut -d ' ' -f 1
+	else
+		shasum -a 256 "$1" | cut -d ' ' -f 1
+	fi
+}
+
+# The asset name the script under test will ask for on this machine.
+asset_name() {
+	local os arch
+	case "$(uname -s)" in
+		Darwin) os=darwin ;;
+		Linux) os=linux ;;
+		*) os=unsupported ;;
+	esac
+	case "$(uname -m)" in
+		arm64 | aarch64) arch=arm64 ;;
+		x86_64 | amd64) arch=amd64 ;;
+		*) arch=unsupported ;;
+	esac
+	printf 'sluss_%s_%s.tar.gz\n' "$os" "$arch"
+}
+
+asset="$(asset_name)"
+
+# publish writes a release into the fake remote: an archive whose sluss prints
+# $2, plus a matching checksums.txt.
+publish() {
+	local tag="$1" marker="$2" dir
+	if [ "$tag" = latest ]; then
+		dir="$work/remote/releases/latest/download"
+	else
+		dir="$work/remote/releases/download/$tag"
+	fi
+	mkdir -p "$dir" "$work/stage"
+	printf '#!/bin/sh\nprintf %%s\\\\n "%s"\n' "$marker" > "$work/stage/sluss"
+	chmod 0755 "$work/stage/sluss"
+	tar -czf "$dir/$asset" -C "$work/stage" sluss
+	printf '%s  %s\n' "$(sha256 "$dir/$asset")" "$asset" > "$dir/checksums.txt"
+}
+
+# corrupt replaces a published archive's bytes without touching its checksums.txt.
+corrupt() {
+	local tag="$1" mode="$2" dir
+	if [ "$tag" = latest ]; then
+		dir="$work/remote/releases/latest/download"
+	else
+		dir="$work/remote/releases/download/$tag"
+	fi
+	case "$mode" in
+		html) printf '<html><title>404</title></html>\n' > "$dir/$asset" ;;
+		truncated)
+			head -c 20 "$dir/$asset" > "$dir/$asset.part"
+			mv "$dir/$asset.part" "$dir/$asset"
+			# Re-checksum, so the failure lands at extraction rather than earlier.
+			printf '%s  %s\n' "$(sha256 "$dir/$asset")" "$asset" > "$dir/checksums.txt"
+			;;
+		checksum) printf '%064d  %s\n' 0 "$asset" > "$dir/checksums.txt" ;;
+	esac
+}
+
+# install runs the installer against the fake remote into a given directory.
+# Sets `status` and `output` for the caller.
+install_sluss() {
+	local dir="$1"
+	shift
+	output="$(env "SLUSS_INSTALL_DIR=$dir" "SLUSS_BASE_URL=file://$work/remote/releases" \
+		"$@" sh "$install_sh" 2>&1)"
+	status=$?
+}
+
+uninstall_sluss() {
+	local dir="$1"
+	output="$(env "SLUSS_INSTALL_DIR=$dir" sh "$uninstall_sh" 2>&1)"
+	status=$?
+}
+
+report() {
+	printf 'FAIL %s\n' "$1" >&2
+	printf '     %s\n' "$2" >&2
+	failures=$((failures + 1))
+}
+
+check_status() {
+	[ "$status" -eq "$2" ] || report "$1" "exit status $status, want $2"
+}
+
+check_contains() {
+	case "$3" in
+		*"$2"*) ;;
+		*) report "$1" "output does not contain '$2': $3" ;;
+	esac
+}
+
+check_binary_says() {
+	local got
+	got="$("$1" 2>&1)"
+	[ "$got" = "$2" ] || report "$3" "installed binary printed '$got', want '$2'"
+}
+
+# --- install: the happy path ------------------------------------------------
+
+publish latest first
+dir="$work/bin"
+install_sluss "$dir"
+check_status 'install succeeds against the fake remote' 0
+check_binary_says "$dir/sluss" first 'install puts a working binary on disk'
+check_contains 'install says where it went' "$dir/sluss" "$output"
+
+# --- install: upgrade in place ----------------------------------------------
+
+publish latest second
+install_sluss "$dir"
+check_status 'reinstalling succeeds' 0
+check_binary_says "$dir/sluss" second 'reinstalling upgrades in place'
+[ -e "$dir/.sluss.new" ] && report 'install leaves no temporary file' "$dir/.sluss.new still exists"
+
+# --- install: a pinned version ----------------------------------------------
+
+publish v0.1.0 pinned
+install_sluss "$dir" SLUSS_VERSION=v0.1.0
+check_status 'SLUSS_VERSION pins a tag' 0
+check_binary_says "$dir/sluss" pinned 'SLUSS_VERSION installs that release'
+
+# --- install: bad downloads never replace an installation -------------------
+
+for mode in checksum html truncated; do
+	publish latest good
+	install_sluss "$dir" >/dev/null
+	corrupt latest "$mode"
+	install_sluss "$dir"
+	check_status "install refuses a $mode download" 1
+	check_binary_says "$dir/sluss" good "a $mode download leaves the installation untouched"
+done
+publish latest good
+install_sluss "$dir"
+corrupt latest checksum
+install_sluss "$dir"
+check_contains 'a checksum mismatch is named as such' 'checksum mismatch' "$output"
+check_contains 'a checksum mismatch says nothing was installed' 'nothing was installed' "$output"
+
+# --- install: a release that is not there -----------------------------------
+
+rm -rf "$work/remote"
+install_sluss "$dir"
+check_status 'install fails when the release is missing' 1
+check_contains 'install names what it could not download' 'could not download' "$output"
+
+# --- install: platforms sluss does not release for --------------------------
+
+fake_uname() {
+	local dir="$work/fakebin"
+	mkdir -p "$dir"
+	# shellcheck disable=SC2016 # $1 belongs to the generated script, not to this one.
+	printf '#!/bin/sh\ncase "$1" in\n  -s) printf %%s\\\\n "%s" ;;\n  -m) printf %%s\\\\n "%s" ;;\nesac\n' \
+		"$1" "$2" > "$dir/uname"
+	chmod 0755 "$dir/uname"
+	printf '%s' "$dir"
+}
+
+publish latest good
+output="$(PATH="$(fake_uname Windows_NT x86_64):$PATH" \
+	env "SLUSS_INSTALL_DIR=$work/other" "SLUSS_BASE_URL=file://$work/remote/releases" \
+	sh "$install_sh" 2>&1)"
+status=$?
+check_status 'install refuses an unsupported operating system' 1
+check_contains 'install names the operating system' 'unsupported operating system' "$output"
+
+output="$(PATH="$(fake_uname Linux riscv64):$PATH" \
+	env "SLUSS_INSTALL_DIR=$work/other" "SLUSS_BASE_URL=file://$work/remote/releases" \
+	sh "$install_sh" 2>&1)"
+status=$?
+check_status 'install refuses an unsupported architecture' 1
+check_contains 'install names the architecture' 'unsupported architecture' "$output"
+
+# --- install: PATH advice ---------------------------------------------------
+
+install_sluss "$dir"
+check_contains 'install warns about a directory not on PATH' 'is not on your PATH' "$output"
+
+output="$(PATH="$dir:$PATH" env "SLUSS_INSTALL_DIR=$dir" \
+	"SLUSS_BASE_URL=file://$work/remote/releases" sh "$install_sh" 2>&1)"
+case "$output" in
+	*'is not on your PATH'*) report 'install stays quiet about a directory already on PATH' "$output" ;;
+esac
+
+# --- uninstall --------------------------------------------------------------
+
+install_sluss "$dir"
+uninstall_sluss "$dir"
+check_status 'uninstall succeeds' 0
+check_contains 'uninstall says what it removed' "$dir/sluss" "$output"
+[ -e "$dir/sluss" ] && report 'uninstall removes the binary' "$dir/sluss still exists"
+check_contains 'uninstall says what it left behind' 'Left in place' "$output"
+
+uninstall_sluss "$dir"
+check_status 'uninstalling twice is not an error' 0
+check_contains 'uninstall says there was nothing to do' 'nothing to do' "$output"
+
+# A configuration file is never removed.
+config_home="$work/config"
+mkdir -p "$config_home/sluss"
+printf '{}' > "$config_home/sluss/config.json"
+install_sluss "$dir"
+output="$(env "SLUSS_INSTALL_DIR=$dir" "XDG_CONFIG_HOME=$config_home" sh "$uninstall_sh" 2>&1)"
+[ -f "$config_home/sluss/config.json" ] ||
+	report 'uninstall keeps the configuration file' 'config.json was removed'
+check_contains 'uninstall names the configuration it kept' 'config.json' "$output"
+
+# ----------------------------------------------------------------------------
+
+if [ "$failures" -ne 0 ]; then
+	printf '\n%d check(s) failed\n' "$failures" >&2
+	exit 1
+fi
+printf 'all install/uninstall checks passed\n'
