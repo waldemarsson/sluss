@@ -229,7 +229,7 @@ test('force stays armed when the confirm is dismissed', async () => {
 	await expect.element(screen.getByRole('checkbox', { name: 'force destroy auth' })).toBeChecked();
 });
 
-test('a refusal renders the script stderr unchanged', async () => {
+test('a refusal renders the stderr unchanged', async () => {
 	confirmReturns(true);
 	vi.spyOn(window, 'fetch').mockResolvedValue(
 		new Response(

@@ -30,7 +30,7 @@ test('fetches the configuration once and holds it', async () => {
 	expect(access.loaded).toBe(true);
 });
 
-// slussd not answering is not worth breaking the page over: the create form is empty,
+// sluss not answering is not worth breaking the page over: the create form is empty,
 // everything else still works.
 test('survives a failed fetch with the empty configuration', async () => {
 	vi.stubGlobal(
@@ -41,7 +41,7 @@ test('survives a failed fetch with the empty configuration', async () => {
 
 	access.load();
 	// Settled, not successful: a consumer waiting on `loaded` must not wait forever
-	// because slussd was down.
+	// because sluss was down.
 	await vi.waitFor(() => expect(access.loaded).toBe(true));
 
 	expect(access.config.repos).toEqual([]);

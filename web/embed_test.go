@@ -20,7 +20,7 @@ func TestAssetsOpen(t *testing.T) {
 }
 
 // The dashboard's nested routes must prerender to a directory index rather than a
-// sibling .html file: slussd serves the build with a plain http.FileServerFS, which
+// sibling .html file: sluss serves the build with a plain http.FileServerFS, which
 // resolves the first and not the second. This is what proves `trailingSlash: 'always'`
 // in web/dashboard/src/routes/+layout.ts is still in effect.
 func TestBuiltDashboardNestsConfigRoutes(t *testing.T) {

@@ -51,7 +51,7 @@ undocumented there. Do not treat `sbx --help` as the full surface.
 
 `sbx ls` is documented as listing "all sandboxes with their agent, status, published ports,
 and workspace". The flag is `--json`; **`--format json` is rejected** as an unknown flag. The
-shape, which `scripts/sluss` parses to recover a sandbox's agent:
+shape, which sluss parses to recover a sandbox's agent:
 
 ```json
 { "sandboxes": [ { "name": "pergola", "id": "50fe619b-…", "agent": "opencode",
@@ -62,10 +62,10 @@ shape, which `scripts/sluss` parses to recover a sandbox's agent:
                     "/Users/marwal/code/private/pergola/.git" ] } ] }
 ```
 
-`agent` follows `name` within each object, and a stopped sandbox simply omits `ports` —
-consistent with assumption 4's note that no mappings are reported while stopped. `sluss`
-depends on both the key names and that ordering, so this block is load-bearing for
-`scripts/sluss`, not just reference material.
+A stopped sandbox simply omits `ports` — consistent with assumption 4's note that no mappings
+are reported while stopped. sluss depends on these key names, so this block is load-bearing, not
+just reference material. (It no longer depends on `agent` following `name`: the shell script
+matched the two with awk in document order, and `internal/sbx` decodes the JSON properly.)
 
 ---
 
@@ -284,7 +284,7 @@ it needs no DNS, no wildcard certificate and no reverse proxy at all. D7 records
 as assuming root. If that assumption holds, the zero-infrastructure deployment does not work for
 OpenCode and `host` mode becomes mandatory.
 
-Run `slussd serve` with `access: path` against a real OpenCode sandbox, open
+Run `sluss serve` with `access: path` against a real OpenCode sandbox, open
 `http://127.0.0.1:8420/s/<scope>/<name>/` and check, in order:
 
 - does `index.html` load at all, or does it 404 on its own assets?

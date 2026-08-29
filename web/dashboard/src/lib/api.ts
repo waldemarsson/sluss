@@ -1,4 +1,4 @@
-// The shapes slussd sends the browser, mirrored by hand from the Go structs named
+// The shapes sluss sends the browser, mirrored by hand from the Go structs named
 // against each type. Nothing generates this: the API is Go in this same repo, so a
 // codegen step would cost more than it saves at this size. When a Go struct here
 // changes, change it here too — `npm run check` catches every use, not the drift.
@@ -79,10 +79,10 @@ export type SecretList = {
 	names: string[];
 };
 
-// Every error body writeError() produces is `{"error": …}`. A refusal from
-// scripts/sluss adds the script's own stderr (internal/script/script.go: Result),
-// which is what the UI shows in preference to the generic message. Both are optional
-// because an error body is also what a fetch falls back to on a non-JSON response.
+// Every error body writeError() produces is `{"error": …}`. A refusal from a
+// lifecycle route adds its own stderr (internal/lifecycle: Result), which is what the
+// UI shows in preference to the generic message. Both are optional because an error
+// body is also what a fetch falls back to on a non-JSON response.
 export type ApiError = {
 	error?: string;
 	exitCode?: number;
@@ -98,7 +98,7 @@ export type ApiError = {
  */
 export type Result<T> = { ok: true; body: T } | { ok: false; message: string };
 
-// A lifecycle route answers a refusal with the script's own stderr (see ApiError above),
+// A lifecycle route answers a refusal with its own stderr (see ApiError above),
 // which is the message worth showing; every other route carries `error`. The status line
 // is the last resort, for a response whose body is not JSON at all.
 async function messageFor(response: Response): Promise<string> {

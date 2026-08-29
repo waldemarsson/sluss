@@ -35,13 +35,12 @@ test('treats an empty 204 as success', async () => {
 	expect(result.ok).toBe(true);
 });
 
-// The whole point of the shared rule: a refusal from scripts/sluss says more in its
+// The whole point of the shared rule: a lifecycle refusal says more in its
 // stderr than the generic message wrapped around it, and every route now shows it.
-test('prefers the script stderr over the generic error', async () => {
-	answers(
-		JSON.stringify({ error: 'the script refused', stderr: '  refusing: 2 unmerged commits\n' }),
-		{ status: 409 }
-	);
+test('prefers the refusal stderr over the generic error', async () => {
+	answers(JSON.stringify({ error: 'sluss refused', stderr: '  refusing: 2 unmerged commits\n' }), {
+		status: 409
+	});
 
 	const result = await command('/api/sandboxes/work/auth', { method: 'DELETE' });
 
@@ -64,7 +63,7 @@ test('falls back to the status when the body is not JSON', async () => {
 	expect(result).toEqual({ ok: false, message: 'failed with 502' });
 });
 
-// An unreachable slussd reaches the user as a line like any other, so no component
+// An unreachable sluss reaches the user as a line like any other, so no component
 // carries a try/catch of its own.
 test('turns a thrown fetch into a message', async () => {
 	vi.stubGlobal(
