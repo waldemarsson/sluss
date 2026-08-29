@@ -1,8 +1,15 @@
 # sluss — Spec v1.0
 
+> **Superseded in part. History, not instructions.** This document describes the design as it
+> stood while sluss was two things: a `sluss` shell script owning lifecycle, and a `slussd` daemon
+> shelling out to it. Both are gone — there is now one binary named `sluss`, with lifecycle in
+> `internal/lifecycle` (docs/DECISIONS.md **D23** and **D24**). Everything else here — the
+> division of labour with sbx, the stateless design, the single-port routing, the two addressing
+> modes — still holds. For what sluss does today, read [README.md](../README.md).
+
 > A control plane over Docker Sandboxes (sbx): one daemon that shows every sandbox across repos
-> and sbx scopes, reaches each OpenCode Web UI through a single port, and drives lifecycle by
-> running the `sluss` shell script.
+> and sbx scopes, reaches each OpenCode Web UI through a single port, and drives the sandbox
+> lifecycle.
 
 **Status:** implemented. Two spikes remain open and are named in §13 — until the first is
 answered, path mode is the default but unproven against OpenCode Web.
@@ -15,9 +22,9 @@ flags are used manually.
 
 ## 1. Problem
 
-`scripts/sluss` covers the sandbox lifecycle from a terminal in the primary checkout, but there is
-no way to see every sandbox across repos and sbx scopes at once, and no way to reach an OpenCode
-Web session from a phone.
+sluss's command line covers the sandbox lifecycle from a terminal in the primary checkout, but
+there is no way to see every sandbox across repos and sbx scopes at once, and no way to reach an
+OpenCode Web session from a phone.
 
 This is convenience tooling for one person, not a product. `BACKGROUND.md`'s honest read stands.
 
@@ -25,7 +32,7 @@ This is convenience tooling for one person, not a product. `BACKGROUND.md`'s hon
 
 One page showing every sandbox, grouped by repository, with the facts that decide what to do next —
 branch, agent, status, dirty worktree, unmerged commits. One click reaches the agent. Lifecycle
-buttons run the same script a terminal would.
+buttons run the same code a terminal would.
 
 ## 3. Non-goals
 
@@ -33,7 +40,7 @@ buttons run the same script a terminal would.
 - Multi-agent orchestration or inter-agent coordination
 - Kubernetes, cloud deployment, remote execution, raw Docker
 - Reimplementing anything sbx already does
-- Reimplementing worktree lifecycle in Go while `scripts/sluss` does it correctly
+- A second implementation of worktree lifecycle anywhere (D23 made `internal/lifecycle` the one)
 - Per-client profile management (deferred — see `PROFILES.md`)
 - TLS, certificates, DNS records, or generating configuration for anyone else's proxy
 
@@ -49,37 +56,38 @@ buttons run the same script a terminal would.
 | Network egress policy | sbx (`sbx policy`) |
 | Environment tools, files, standards | sbx kits |
 | Identity scoping (`--app-name`), kits | sbx — invoked manually in the MVP |
-| **Git worktree lifecycle** | **`scripts/sluss`** |
-| **Fleet view, HTTP routing, dashboard** | **`slussd`** |
+| **Git worktree lifecycle** | **sluss** (`internal/lifecycle`) |
+| **Fleet view, HTTP routing, dashboard** | **sluss** (`internal/server`) |
 
-`slussd` shells out for everything above it and reimplements none of it.
+sluss delegates everything above those two rows to sbx and reimplements none of it.
 
-## 5. Two binaries
+## 5. One binary
+
+*Superseded: this section described two binaries, `sluss` (a shell script) and `slussd` (the Go
+daemon that ran it as a subprocess). D24 collapsed them.*
 
 | | What it is | Who runs it |
 |---|---|---|
-| `sluss` | the shell script (`scripts/sluss`, installed to `~/.local/bin/sluss`) | a person in a terminal, and `slussd` as a subprocess |
-| `slussd` | the Go daemon (`cmd/slussd`) — dashboard, API, reverse proxy | a terminal on the laptop, systemd in the NAS VM |
+| `sluss` | the Go binary (`cmd/sluss`) — lifecycle commands, dashboard, API, reverse proxy | a person in a terminal, and systemd on a server |
 
-Separate names because they would otherwise collide on `PATH`, and because a daemon that resolved
-its own script by a bare lookup could invoke itself. `slussd` resolves the script through
-`$SLUSS_SCRIPT`, else `~/.local/bin/sluss`, and never by a `PATH` search.
+The command line and the dashboard call the same functions in the same process, so a sandbox
+created from the browser and one created in a terminal are identical by construction.
 
 ## 6. No state
 
-`slussd` persists nothing. Every sandbox fact is derived per poll from
+sluss persists nothing. Every sandbox fact is derived per poll from
 `sbx --app-name <scope> ls --json` plus git commands against the worktree path sbx reports. One
 poll loop over the configured scopes produces an immutable snapshot that drives the fleet table,
 the SSE stream, the proxy's routing map and `doctor`.
 
 There is no second copy of the truth, so there is nothing to reconcile: an `sbx rm` by hand
 becomes visible within one tick and its route stops resolving. Repository and worktree come from
-the two workspaces the script mounts — the entry ending in `.git` is the repository, the other is
+the two workspaces sluss mounts — the entry ending in `.git` is the repository, the other is
 the worktree.
 
 ## 7. Routing — one port, two addressing modes
 
-`slussd` binds exactly one listener. Sandbox ports stay on loopback in both modes, which is what
+sluss binds exactly one listener. Sandbox ports stay on loopback in both modes, which is what
 keeps a front proxy to a single route.
 
 | `access` | URL | Needs |

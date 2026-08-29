@@ -54,8 +54,8 @@
 		return { href: `/s/${sandbox.scope}/${sandbox.name}/`, label: 'open' };
 	}
 
-	// Every mutation runs scripts/sluss on the server. A refusal comes back as 409
-	// with the script's own message, which is shown unchanged.
+	// Every mutation runs sluss's own lifecycle on the server. A refusal comes back as
+	// 409 with its own message, which is shown unchanged.
 	async function act(label: string, run: () => Promise<Result<void>>) {
 		busy = label;
 		problem = '';

@@ -1,12 +1,12 @@
 // Package sbxstub installs a fake sbx executable for tests.
 //
 // sbx needs hardware virtualisation and its own daemon, so it cannot run in the
-// devcontainer (AGENTS.md "Where things run"). Tests stub it the way
-// scripts/test-sluss already does: a shell script on PATH records the argv it was
-// called with, captures stdin, and serves a JSON fixture for "ls --json".
+// devcontainer (AGENTS.md "Where things run"). Tests stub it: a shell script on
+// PATH records the argv it was called with, captures stdin, and serves a JSON
+// fixture for "ls --json".
 //
 // This is a test-only package, but not a _test.go file: internal/sbx,
-// internal/fleet and internal/script all use it.
+// internal/fleet and internal/lifecycle all use it.
 package sbxstub
 
 import (
@@ -34,7 +34,10 @@ const Fixture = `{
 const Empty = `{"sandboxes": []}`
 
 const script = `#!/bin/sh
-printf '%s\n' "$*" >> "$SBX_LOG"
+# One log line per call: an argument may itself span lines — the OpenCode Web
+# launcher sluss sends is a whole shell script — so its newlines become spaces
+# rather than extra records.
+printf '%s\n' "$(printf '%s' "$*" | tr '\n' ' ')" >> "$SBX_LOG"
 if [ -n "${SBX_SLEEP:-}" ]; then sleep "$SBX_SLEEP"; fi
 app=""
 prev=""
@@ -50,11 +53,21 @@ if [ -n "$app" ] && [ -f "$SBX_SCOPE_DIR/$app.fail" ]; then
 fi
 calls=$(wc -l < "$SBX_LOG" | tr -d ' ')
 cat > "$SBX_STDIN_DIR/$calls" 2>/dev/null || :
+if [ -n "${SBX_FAIL_MATCH:-}" ]; then
+	case "$*" in
+		*"$SBX_FAIL_MATCH"*)
+			printf '%s\n' "${SBX_FAIL_STDERR:-}" >&2
+			exit "${SBX_FAIL_CODE:-1}"
+			;;
+	esac
+fi
 if [ -n "${SBX_STDERR:-}" ]; then printf '%s\n' "$SBX_STDERR" >&2; fi
 if [ "${SBX_EXIT:-0}" -ne 0 ]; then exit "$SBX_EXIT"; fi
 if [ -n "${SBX_BANNER:-}" ]; then printf '%s\n' "$SBX_BANNER"; fi
 case " $* " in
 	*" --json "* | *" --json") cat "$fixture" ;;
+	*" secret ls "*) cat "$SBX_SECRETS" ;;
+	*" ports "*) printf '%s' "${SBX_PORTS:-}" ;;
 	*" ls "*) cat "$SBX_SECRETS" ;;
 esac
 `
@@ -101,7 +114,27 @@ func Install(t *testing.T, fixture string) *Stub {
 	t.Setenv("SBX_STDERR", "")
 	t.Setenv("SBX_BANNER", "")
 	t.Setenv("SBX_SLEEP", "")
+	t.Setenv("SBX_PORTS", "")
+	t.Setenv("SBX_FAIL_MATCH", "")
+	t.Setenv("SBX_FAIL_STDERR", "")
+	t.Setenv("SBX_FAIL_CODE", "1")
 	return s
+}
+
+// FailCommand makes only the calls whose argv contains match fail, leaving every
+// other sbx call working. It is what lets a test drive "sbx create failed" without
+// also breaking the listing the unwind path needs.
+func (s *Stub) FailCommand(t *testing.T, match string, code int, stderr string) {
+	t.Helper()
+	t.Setenv("SBX_FAIL_MATCH", match)
+	t.Setenv("SBX_FAIL_CODE", strconv.Itoa(code))
+	t.Setenv("SBX_FAIL_STDERR", stderr)
+}
+
+// Ports sets what "sbx ports NAME" prints.
+func (s *Stub) Ports(t *testing.T, body string) {
+	t.Helper()
+	t.Setenv("SBX_PORTS", body)
 }
 
 // Fail makes every later call exit with code and print stderr.

@@ -13,7 +13,7 @@ export default defineConfig({
 			adapter: adapter({ pages: 'build', assets: 'build', precompress: false })
 		})
 	],
-	// `npm run dev` talks to a locally running slussd rather than mocking it.
+	// `npm run dev` talks to a locally running sluss rather than mocking it.
 	server: { proxy: { '/api': 'http://127.0.0.1:8420' } },
 
 	// Two projects, split by directory, matching the homehub and babytabs frontends.

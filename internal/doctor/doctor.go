@@ -10,7 +10,9 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -55,15 +57,16 @@ func (r *Report) add(name string, state State, format string, args ...any) {
 	r.Checks = append(r.Checks, Check{Name: name, State: state, Detail: fmt.Sprintf(format, args...)})
 }
 
-// Run performs every check. scriptPath may be empty, which is itself a finding.
-func Run(ctx context.Context, cfg *config.Config, client *sbx.Client, scriptPath string, scriptErr error) Report {
+// Run performs every check.
+func Run(ctx context.Context, cfg *config.Config, client *sbx.Client) Report {
 	var r Report
 
 	checkListener(&r, cfg)
 	checkAccess(&r, cfg)
 	checkSbx(ctx, &r, client)
 	checkScopes(ctx, &r, cfg, client)
-	checkScript(ctx, &r, scriptPath, scriptErr)
+	checkGit(ctx, &r)
+	checkWorktreeRoot(&r, cfg)
 	checkRepos(ctx, &r, cfg)
 	checkKits(ctx, &r, cfg)
 
@@ -84,12 +87,12 @@ func checkListener(r *Report, cfg *config.Config) {
 		return
 	}
 
-	// The most likely reason the address is taken is that slussd is already serving
+	// The most likely reason the address is taken is that sluss is already serving
 	// on it, which is exactly when someone runs doctor. Reporting that as a failure
 	// would make the healthy case look broken.
 	if conn, dialErr := net.DialTimeout("tcp", dialable(addr), 2*time.Second); dialErr == nil {
 		_ = conn.Close()
-		r.add("listener", Warn, "%s is already in use and answering — slussd is probably serving there already (%s)", addr, exposure)
+		r.add("listener", Warn, "%s is already in use and answering — sluss is probably serving there already (%s)", addr, exposure)
 		return
 	}
 	r.add("listener", Fail, "cannot bind %s: %v", addr, err)
@@ -135,20 +138,70 @@ func checkScopes(ctx context.Context, r *Report, cfg *config.Config, client *sbx
 	}
 }
 
-// checkScript probes the subcommands the GUI depends on. The script carries no
-// version, so its help topics are the only thing to ask.
-func checkScript(ctx context.Context, r *Report, path string, resolveErr error) {
-	if path == "" {
-		r.add("sluss script", Fail, "%v", resolveErr)
+// checkGit reports the git sluss will drive. Worktree lifecycle is git's work, so
+// a missing git is as fatal as a missing sbx — and less obvious, because everything
+// else keeps answering.
+func checkGit(ctx context.Context, r *Report) {
+	out, err := exec.CommandContext(ctx, "git", "--version").Output()
+	if err != nil {
+		r.add("git", Fail, "git is not on PATH; sluss creates worktrees with it")
 		return
 	}
-	for _, sub := range []string{"start", "stop", "destroy", "path"} {
-		if err := exec.CommandContext(ctx, path, "help", sub).Run(); err != nil {
-			r.add("sluss script", Fail, "%s does not support %q: %v", path, sub, err)
-			return
-		}
+	r.add("git", OK, "%s", strings.TrimSpace(string(out)))
+}
+
+// checkWorktreeRoot reports whether new worktrees can actually be created.
+//
+// Writing a probe file is the only honest test: a directory can exist and still be
+// read-only, and that would otherwise surface at the first "sluss start". doctor
+// creates nothing, though — a diagnostic that changed the filesystem would be a
+// surprise — so when the root does not exist yet it probes the nearest ancestor
+// that does, which is where "sluss start" will create it.
+func checkWorktreeRoot(r *Report, cfg *config.Config) {
+	if cfg.WorktreeRoot == "" {
+		r.add("worktree root", Fail, "worktreeRoot is not configured; sandboxes have nowhere to go")
+		return
 	}
-	r.add("sluss script", OK, "%s supports start, stop, destroy and path", path)
+
+	existing, missing := nearestExisting(cfg.WorktreeRoot)
+	if existing == "" {
+		r.add("worktree root", Fail, "no part of %s exists", cfg.WorktreeRoot)
+		return
+	}
+	probe, err := os.CreateTemp(existing, ".sluss-doctor-*")
+	if err != nil {
+		r.add("worktree root", Fail, "%s is not writable: %v", existing, err)
+		return
+	}
+	_ = probe.Close()
+	_ = os.Remove(probe.Name())
+
+	if missing {
+		r.add("worktree root", OK, "%s does not exist yet; %s is writable, so it will be created", cfg.WorktreeRoot, existing)
+		return
+	}
+	r.add("worktree root", OK, "%s is writable", cfg.WorktreeRoot)
+}
+
+// nearestExisting walks up from path to the first directory that exists, and says
+// whether it had to walk at all.
+func nearestExisting(path string) (dir string, walked bool) {
+	for current := filepath.Clean(path); ; {
+		info, err := os.Stat(current)
+		if err == nil && info.IsDir() {
+			return current, walked
+		}
+		if err == nil {
+			// Something is there but it is not a directory: nothing can be created
+			// under it, and saying so is more useful than climbing past it.
+			return "", walked
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", walked
+		}
+		current, walked = parent, true
+	}
 }
 
 func checkRepos(ctx context.Context, r *Report, cfg *config.Config) {

@@ -4,27 +4,31 @@ Instructions for coding agents working on sluss.
 
 ## Read first
 
-- `.trailmix/trail/gui-control-plane/spec.md` and `plan.md` — **the current truth**: what is being
-  built, in what order, and under which constraints. Where they disagree with anything in `docs/`,
-  they win.
+- `README.md` — what sluss is, every command, the whole configuration file, and how sandbox web
+  UIs are addressed. Written to be enough on its own.
+- `.trailmix/trail/single-binary-sluss/spec.md` and `plan.md` — the most recent structural change:
+  lifecycle moved into Go, the shell script retired, one binary named `sluss`.
 - `docs/DECISIONS.md` — settled choices and rejected alternatives. **Do not relitigate these.** If you think one is wrong, say so in prose and wait; don't silently implement the alternative. D3, D4, D5, D6 and D9 carry forward unchanged; the `*.sluss.localhost` port-per-sandbox routing scheme is superseded by the spec's single-port design.
 - `docs/SPIKE.md` — assumptions verified before coding. If an answer is blank, that assumption is **unverified** — flag it rather than coding around it.
 - `docs/SPEC.md`, `docs/ROADMAP.md` — **superseded** by the spec above; rewritten at the Document waypoint. History, not instructions.
 - `docs/PROFILES.md` — a deferred feature. **Do not implement anything in it** unless explicitly asked.
 
-## Two binaries, two names
+## One binary, one name
 
-`sluss` is the shell script (`scripts/sluss`, installed to `~/.local/bin/sluss`) and remains the
-lifecycle tool. `slussd` (`cmd/slussd`) is the Go daemon serving the dashboard and the reverse
-proxy. The script is **unchanged** by daemon work: `slussd` invokes it as a subprocess, resolved
-explicitly through `$SLUSS_SCRIPT` or the installed path — never by a bare `PATH` lookup, which
-could find `slussd` itself.
+`sluss` (`cmd/sluss`) is everything: the lifecycle commands, the dashboard, and the reverse proxy.
+The shell script that used to own lifecycle is gone, and so is `slussd` (D23, D24). Worktree and
+sandbox lifecycle lives in `internal/lifecycle`, and the dashboard drives the *same* functions the
+command line does — in process, not through a subprocess — so a sandbox created from the browser
+and one created in a terminal cannot drift apart.
+
+`internal/server` reaches lifecycle through a small `Lifecycle` interface declared where it is
+consumed, so route tests need neither git nor sbx. Everything else takes `*lifecycle.Runner`.
 
 ## Where things run
 
 sbx needs hardware virtualisation and its own host daemon, so **it does not run in the devcontainer.**
 The container is for writing, building and unit-testing Go. Anything that touches a real sandbox —
-`docs/SPIKE.md`, `slussd doctor`, `slussd serve` against a live sbx — runs on the host Mac.
+`docs/SPIKE.md`, `sluss doctor`, `sluss serve` against a live sbx — runs on the host Mac.
 Don't write a test that shells out to a real `sbx`.
 
 ## Context you need
@@ -49,8 +53,9 @@ The author is an experienced .NET/C# developer **learning Go on this project**. 
 - Table-driven tests.
 - Standard library first. Justify every new dependency in the PR description.
 
-Approved dependencies: none currently in use — `slussd` is standard library only (`flag`,
-`net/http` including its method-and-wildcard mux patterns, `encoding/json`, `go:embed`).
+Approved dependencies: none currently in use — `sluss` is standard library only (`flag`,
+`net/http` including its method-and-wildcard mux patterns, `encoding/json`, `go:embed`, and
+`archive/tar` + `compress/gzip` + `crypto/sha256` for self-update).
 `spf13/cobra` and `charmbracelet/lipgloss` stay pre-approved if the CLI outgrows `flag`. Anything
 else, ask. The dashboard is SvelteKit with adapter-static, embedded into the binary. Its tooling follows
 babytabs and homehub rather than being chosen here; Prettier and prettier-plugin-svelte were added
@@ -67,7 +72,7 @@ on that basis, at the versions those repos pin.
 **sluss parses no YAML.** Config is JSON. Kit `spec.yaml` is read and written as opaque text —
 sbx is the validator, and no Go struct models the kit schema.
 
-**Every multi-step operation needs an unwind path.** Worktree created but sandbox creation failed — clean up the worktree. Write the unwind at the same time as the happy path, not later. Worktree lifecycle and its unwind live in `scripts/sluss`; don't reimplement either in Go.
+**Every multi-step operation needs an unwind path.** Worktree created but sandbox creation failed — clean up the worktree *and* the branch. Write the unwind at the same time as the happy path, not later. Worktree lifecycle and its unwind live in `internal/lifecycle`, and that is the only implementation — don't add a second one anywhere.
 
 **sluss holds no persistent state.** Every sandbox fact is derived per poll from
 `sbx --app-name X ls --json` plus git commands against the worktree path sbx reports. There are no
@@ -80,14 +85,14 @@ read path must tolerate a missing sandbox or a vanished worktree and report it r
 
 **Error messages from sbx.** These are the bulk of the work and the difference between a script and a tool. "not logged in", "daemon not running", "name already exists", "kit fetch failed", "network policy blocked the install hook" each need a readable message with a suggested fix. Don't dump raw stderr.
 
-**Destroy is destructive.** `scripts/sluss destroy` refuses uncommitted or unmerged work without `--force`, and that refusal is the default path everywhere: `slussd` surfaces it unchanged and passes `--force` only when the request asks for it with `?force=true` — exactly that value, so a typo cannot arm it. The dashboard confirms **every** destroy and arms force per sandbox, disarming it again afterwards, so a box left ticked on one row can never force another. Do not make force the default, do not remember it across destroys, and do not remove the confirm (D20).
+**Destroy is destructive.** `lifecycle.Runner.Destroy` refuses uncommitted or unmerged work without force, and that refusal is the default path everywhere: the HTTP routes surface it unchanged and pass force only when the request asks for it with `?force=true` — exactly that value, so a typo cannot arm it. The dashboard confirms **every** destroy and arms force per sandbox, disarming it again afterwards, so a box left ticked on one row can never force another. Do not make force the default, do not remember it across destroys, and do not remove the confirm (D20).
 
 **Dashboard auth is deferred by decision.** Do **not** add a token gate to mutating routes. Reachability is the whole auth story: `lan: false` binds loopback, and the NAS deployment is LAN- and VPN-only, inheriting the homelab's documented and accepted stance for its existing opencode VM. Revisit only under the conditions homelab names — reachable from outside the VPN, or untrusted devices on the LAN.
 
 ## Working style
 
 - Small changes. One concern per commit.
-- Run `task check` (gofmt + `go vet` + `go test` + shellcheck + the script's black-box tests) before finishing.
+- Run `task check` (gofmt + `go vet` + `go test` + shell linting + `scripts/test-install`) before finishing.
 - Dashboard work has its own gates, deliberately kept out of `task check` so a Go change does
   not pay for a browser launch: `task check:web` (Prettier + svelte-check) and `task test:web`
   (Vitest `unit` on node for `*.unit.test.ts`, `component` in a real headless Chromium for

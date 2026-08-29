@@ -1,6 +1,6 @@
 import type { AccessConfig } from '#lib/api.js';
 
-// slussd is trusted, but the body it sends is still untyped JSON, and a key it omits
+// sluss is trusted, but the body it sends is still untyped JSON, and a key it omits
 // would otherwise be a missing array in every consumer. Filling the gaps once here is
 // what lets a route read `config.repos` straight instead of guarding it.
 function complete(body: Partial<AccessConfig>): AccessConfig {

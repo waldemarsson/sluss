@@ -1,6 +1,8 @@
 name: Release
 
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -8,7 +10,6 @@ permissions:
 
 jobs:
   release:
-    if: ${{ false }} # Go binary releases are paused while sluss is a shell wrapper.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,33 +17,73 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/dashboard/package-lock.json
       - name: Check
         run: |
           test -z "$(gofmt -l .)"
           go vet ./...
           go test ./...
-          bash -n scripts/install.sh
-          shellcheck scripts/install.sh
+          sh -n scripts/install.sh scripts/uninstall.sh
+          bash -n scripts/test-install
+          shellcheck scripts/install.sh scripts/uninstall.sh scripts/test-install
+          ./scripts/test-install
+      # The dashboard is embedded with go:embed from web/dashboard/build, so it has
+      # to exist before the Go build. Without this the release would ship a binary
+      # serving the .gitkeep placeholder instead of the UI.
+      - name: Build the dashboard
+        working-directory: web/dashboard
+        run: |
+          npm ci
+          npm run build
       - name: Build release archives
         env:
           VERSION: ${{ github.ref_name }}
         run: |
           mkdir -p dist
-          for target in darwin/arm64 linux/amd64; do
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
             os=${target%/*}
             arch=${target#*/}
-            archive="slussd_${VERSION}_${os}_${arch}.tar.gz"
+            # Asset names carry no version, so the install script can fetch
+            # releases/latest/download/<name> without asking the GitHub API.
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build \
               -trimpath \
               -ldflags "-s -w -X main.version=${VERSION}" \
-              -o slussd \
-              ./cmd/slussd
-            tar -czf "dist/${archive}" slussd
-            rm slussd
+              -o sluss \
+              ./cmd/sluss
+            tar -czf "dist/sluss_${os}_${arch}.tar.gz" sluss
+            rm sluss
           done
           cd dist
           sha256sum -- *.tar.gz > checksums.txt
+      # A binary that reports the wrong version, or serves the placeholder page,
+      # is worse than a failed release: it looks like it worked.
+      - name: Verify the archive for this runner
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          tar -xzf dist/sluss_linux_amd64.tar.gz -C /tmp
+          test "$(/tmp/sluss version)" = "${VERSION}"
+          /tmp/sluss --help | grep -q 'sluss - isolated agent sandboxes'
+          # The embedded dashboard must be the built one, not the committed
+          # .gitkeep placeholder: adapter-static only emits _app/immutable paths
+          # when a real build ran.
+          grep -qa '_app/immutable' /tmp/sluss ||
+            { echo "the binary embeds no built dashboard" >&2; exit 1; }
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" dist/* --generate-notes --verify-tag
+        run: |
+          # A tag carrying a pre-release suffix (v0.2.0-rc1) must not become the
+          # "latest" release: scripts/install.sh fetches
+          # releases/latest/download/<asset>, so letting an rc take that spot would
+          # hand it to every new install. GitHub excludes prereleases from "latest".
+          prerelease=""
+          case "${GITHUB_REF_NAME}" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          # shellcheck disable=SC2086 # $prerelease is a flag or nothing, deliberately unquoted.
+          gh release create "${GITHUB_REF_NAME}" dist/* --generate-notes --verify-tag $prerelease

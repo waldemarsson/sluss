@@ -1,7 +1,11 @@
-// Package gitfacts reads the git state of one sandbox worktree.
+// Package gitfacts reads the git state of one sandbox worktree, and is where the
+// one git runner lives.
 //
 // sluss stores none of this: it is recomputed every poll from the worktree path sbx
 // reports, so a commit, a stash or an "rm -rf" shows up within one tick.
+//
+// Run and OK are exported because internal/lifecycle drives git too, and a second
+// runner would be a second set of error messages to keep in step.
 package gitfacts
 
 import (
@@ -36,11 +40,11 @@ func Read(ctx context.Context, repoPath, worktreePath string) (Facts, error) {
 		return Facts{}, fmt.Errorf("checking worktree %s: %w", worktreePath, err)
 	}
 
-	branch, err := git(ctx, worktreePath, "rev-parse", "--abbrev-ref", "HEAD")
+	branch, err := Run(ctx, worktreePath, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return Facts{}, err
 	}
-	status, err := git(ctx, worktreePath, "status", "--porcelain")
+	status, err := Run(ctx, worktreePath, "status", "--porcelain")
 	if err != nil {
 		return Facts{}, err
 	}
@@ -49,11 +53,11 @@ func Read(ctx context.Context, repoPath, worktreePath string) (Facts, error) {
 	if repoPath == "" {
 		return facts, nil
 	}
-	base, err := git(ctx, repoPath, "rev-parse", "HEAD")
+	base, err := Run(ctx, repoPath, "rev-parse", "HEAD")
 	if err != nil {
 		return Facts{}, err
 	}
-	count, err := git(ctx, worktreePath, "rev-list", "--count", base+"..HEAD")
+	count, err := Run(ctx, worktreePath, "rev-list", "--count", base+"..HEAD")
 	if err != nil {
 		return Facts{}, err
 	}
@@ -64,8 +68,9 @@ func Read(ctx context.Context, repoPath, worktreePath string) (Facts, error) {
 	return facts, nil
 }
 
-// git runs one command in dir and returns its trimmed stdout.
-func git(ctx context.Context, dir string, args ...string) (string, error) {
+// Run executes one git command in dir and returns its trimmed stdout. A failure
+// carries what was attempted plus git's own first line of stderr.
+func Run(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -85,4 +90,11 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// OK runs a git command for its exit status alone, where a failure is an answer
+// rather than a fault — "does this branch exist?", "is this branch an ancestor?".
+func OK(ctx context.Context, dir string, args ...string) bool {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	return cmd.Run() == nil
 }

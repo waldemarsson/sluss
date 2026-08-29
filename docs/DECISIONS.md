@@ -203,7 +203,7 @@ the earlier design non-portable.
 
 ---
 
-## D14 — Lifecycle stays in the shell script
+## D14 — Lifecycle stays in the shell script *(superseded by D23)*
 
 **Chosen:** `slussd` creates, stops and destroys sandboxes by running `scripts/sluss` as a
 subprocess with the chosen repository as its working directory and `SLUSS_APP_NAME` /
@@ -248,7 +248,7 @@ the same two conditions the homelab names.
 
 ---
 
-## D16 — Two binaries: `sluss` and `slussd`
+## D16 — Two binaries: `sluss` and `slussd` *(superseded by D24)*
 
 **Chosen:** the shell script keeps the name `sluss`; the Go daemon is `slussd`.
 
@@ -445,3 +445,73 @@ filename does.
 **Consequence:** `--passWithNoTests` is gone, so an empty `unit` project now fails loudly. The
 component project's `exclude` spreads Vitest's `defaultExclude` rather than replacing it, or
 assigning it would drop the built-in `**/node_modules/**` guard.
+
+---
+
+## D23 — Lifecycle moves into Go, and the shell script is retired
+
+**Supersedes D14.**
+
+**Chosen:** worktree and sandbox lifecycle is `internal/lifecycle`, written in Go. `scripts/sluss`
+is deleted. The dashboard and the command line call the same functions in the same process.
+
+**Why:** D14 kept lifecycle in the script so the GUI and the terminal could not diverge, and paid
+for it by shelling out to bash on every mutation. That trade stopped making sense once the binary
+became the thing worth installing: the script needed its own install path, its own update
+mechanism and its own name, and `slussd` had to resolve it by an explicit path to avoid finding
+itself. One implementation in one process gets D14's actual goal — the browser and the terminal
+running identical code — with less machinery, and removes bash and a second install artefact from
+the runtime.
+
+**What it cost:** roughly 600 lines of careful bash were rewritten. The refusal wording, the exit
+codes, the `--agent` and `--` parsing rules, the 4096 auto-publish and the create-failure unwind
+were ported unchanged rather than improved, and `scripts/test-sluss`'s black-box cases were
+carried over as Go tests before the script was deleted — including the ones guarding a `gh` /
+`gh-remote` prefix match and a backslash in a sandbox name. Decoding `sbx ls --json` properly
+rather than with awk removes that second class of bug structurally.
+
+**What improved:** a refusal is now a typed error (`lifecycle.Error` with a `Kind`) rather than an
+exit code parsed out of a subprocess, so the exit status is decided where the reason is known. The
+`Result{exitCode, stdout, stderr}` shape is kept exactly, because the dashboard consumes it.
+
+**One smaller divergence, recorded rather than hidden:** the script tested the worktree path with
+`[[ -e ]]`, which follows symlinks, so a dangling symlink there was not "occupied" and
+`git worktree add` was attempted against it. The Go port uses `Lstat`, so a dangling symlink is
+occupied and `start` refuses with "worktree path already exists" — a clearer message than the git
+failure it replaces.
+
+**Consequence:** an unscoped sbx call is no longer possible. The script fell back to sbx's default
+scope when `SLUSS_APP_NAME` was unset; `internal/sbx` requires an app-name, so the command line
+resolves one from the environment, then the configuration file, and reports a readable error if
+there is none. That is the chokepoint rule (D3) applied consistently, and it is a deliberate
+behaviour change.
+
+---
+
+## D24 — One binary, named `sluss`
+
+**Supersedes D16.**
+
+**Chosen:** there is one artefact, `cmd/sluss`, built as `sluss`. `slussd` is gone.
+
+**Why:** D16 existed because two things of the same name on `PATH` would make install order decide
+which one a bare `sluss start` ran, and a daemon resolving its script by a bare lookup could
+invoke itself. Both hazards are properties of there being two things. With one binary there is
+nothing to collide with, and the name people already type is the one that should be installed.
+
+**What came with it:** releases are built by CI from a `v*` tag for darwin/arm64, darwin/amd64,
+linux/amd64 and linux/arm64, as `sluss_<os>_<arch>.tar.gz` plus `checksums.txt`. Asset names carry
+no version so `releases/latest/download/<name>` resolves without a GitHub API call — which keeps
+`scripts/install.sh` free of the unauthenticated rate limit. `sluss update` does need the latest
+tag, so it does call the API, and degrades to "reinstall with the install script" when limited.
+
+**Rejected:**
+- *Embedding the script in the binary with `go:embed`.* One name, but bash stays a runtime
+  dependency and the rewrite is only postponed.
+- *Keeping `slussd` and adding an installer for it.* Leaves two things to install and two to
+  update, which is the problem.
+
+**Consequence:** the release workflow now builds the dashboard before the Go binary. It did not
+before, which would have shipped a binary embedding `web/dashboard/build/.gitkeep` instead of the
+UI — a release that looks like it worked. A workflow step asserts the built binary carries a real
+dashboard.
