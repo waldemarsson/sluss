@@ -14,6 +14,10 @@
 	let opened = $state(false);
 	let copied = $state('');
 	let busy = $state('');
+	// Which sandbox has force armed, as "scope/name". One string rather than a flag per
+	// row, so arming a second sandbox disarms the first by construction: a checkbox left
+	// ticked on one row can never force the destroy of another.
+	let forcing = $state('');
 	let problem = $state('');
 	let chosen = $state({ repo: '', scope: '', name: '', agent: 'opencode' });
 
@@ -81,8 +85,20 @@
 		);
 	}
 
+	const keyOf = (sandbox: Sandbox) => `${sandbox.scope}/${sandbox.name}`;
+
+	function start(sandbox: Sandbox) {
+		return act(keyOf(sandbox), () =>
+			fetch(`/api/sandboxes/${sandbox.scope}/${sandbox.name}/start`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: '{}'
+			})
+		);
+	}
+
 	function stop(sandbox: Sandbox) {
-		return act(`${sandbox.scope}/${sandbox.name}`, () =>
+		return act(keyOf(sandbox), () =>
 			fetch(`/api/sandboxes/${sandbox.scope}/${sandbox.name}/stop`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
@@ -91,10 +107,25 @@
 		);
 	}
 
-	function destroy(sandbox: Sandbox) {
-		return act(`${sandbox.scope}/${sandbox.name}`, () =>
-			fetch(`/api/sandboxes/${sandbox.scope}/${sandbox.name}`, { method: 'DELETE' })
+	// Destroy is the one irreversible action the dashboard can take, and on a phone it
+	// is a mis-tap away, so it always passes a confirm. Force is opt-in per sandbox and
+	// says in the prompt what it discards. A destroy that runs disarms the checkbox, so
+	// force cannot carry over to the next one; a dismissed confirm leaves it armed,
+	// because cancelling the dialog answers this destroy, not the intent behind it, and
+	// the next confirm still names the cost.
+	async function destroy(sandbox: Sandbox) {
+		const key = keyOf(sandbox);
+		const force = forcing === key;
+		const warning = force
+			? `Destroy ${sandbox.name}, discarding uncommitted and unmerged work? This cannot be undone.`
+			: `Destroy ${sandbox.name}?`;
+		if (!window.confirm(warning)) return;
+		await act(key, () =>
+			fetch(`/api/sandboxes/${sandbox.scope}/${sandbox.name}${force ? '?force=true' : ''}`, {
+				method: 'DELETE'
+			})
 		);
+		forcing = '';
 	}
 
 	async function copyAttach(name: string) {
@@ -215,7 +246,19 @@
 							<td>
 								{#if sandbox.status === 'running'}
 									<button onclick={() => stop(sandbox)} disabled={busy !== ''}>stop</button>
+								{:else}
+									<button aria-label="start {sandbox.name}" onclick={() => start(sandbox)} disabled={busy !== ''}>start</button>
 								{/if}
+								<label class="force">
+									<input
+										type="checkbox"
+										aria-label="force destroy {sandbox.name}"
+										disabled={busy !== ''}
+										checked={forcing === keyOf(sandbox)}
+										onchange={(event) => (forcing = event.currentTarget.checked ? keyOf(sandbox) : '')}
+									/>
+									<span>force</span>
+								</label>
 								<button onclick={() => destroy(sandbox)} disabled={busy !== ''}>destroy</button>
 							</td>
 						</tr>
@@ -258,7 +301,19 @@
 							</button>
 							{#if sandbox.status === 'running'}
 								<button onclick={() => stop(sandbox)} disabled={busy !== ''}>stop</button>
+							{:else}
+								<button aria-label="start {sandbox.name}" onclick={() => start(sandbox)} disabled={busy !== ''}>start</button>
 							{/if}
+							<label class="force">
+								<input
+									type="checkbox"
+									aria-label="force destroy {sandbox.name}"
+									disabled={busy !== ''}
+									checked={forcing === keyOf(sandbox)}
+									onchange={(event) => (forcing = event.currentTarget.checked ? keyOf(sandbox) : '')}
+								/>
+								<span>force</span>
+							</label>
 							<button onclick={() => destroy(sandbox)} disabled={busy !== ''}>destroy</button>
 						</div>
 					</li>
@@ -348,5 +403,20 @@
 		border: 1px solid #333842;
 		border-radius: 4px;
 		text-decoration: none;
+	}
+	/* The checkbox and its word are one target: in the table they sit inline with the
+	   buttons, and in a card .actions > * already makes the label a thumb-sized box. */
+	.force {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		white-space: nowrap;
+	}
+	.force input {
+		/* A default checkbox is a pointer target; this is the smallest square that is
+		   still a comfortable one on a phone. */
+		width: 20px;
+		height: 20px;
+		margin: 0;
 	}
 </style>

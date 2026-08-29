@@ -176,7 +176,7 @@ func TestDestroyRefusesDirtyWork(t *testing.T) {
 		t.Fatalf("writing unsaved work: %v", err)
 	}
 
-	result, err := runner.Destroy(context.Background(), repo, "personal", "web")
+	result, err := runner.Destroy(context.Background(), repo, "personal", "web", false)
 	if err != nil {
 		t.Fatalf("Destroy: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestDestroyRefusesUnmergedCommits(t *testing.T) {
 	git(t, worktree, "add", "feature")
 	git(t, worktree, "commit", "-q", "-m", "feature")
 
-	result, err := runner.Destroy(context.Background(), repo, "personal", "web")
+	result, err := runner.Destroy(context.Background(), repo, "personal", "web", false)
 	if err != nil {
 		t.Fatalf("Destroy: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestDestroyRemovesCleanMergedWork(t *testing.T) {
 	}
 	worktree := filepath.Join(runner.WorktreeRoot, "mercurius", "web")
 
-	result, err := runner.Destroy(context.Background(), repo, "personal", "web")
+	result, err := runner.Destroy(context.Background(), repo, "personal", "web", false)
 	if err != nil {
 		t.Fatalf("Destroy: %v", err)
 	}
@@ -262,13 +262,57 @@ func recorder(t *testing.T) (path, log string) {
 	return path, log
 }
 
-func TestDestroyNeverForces(t *testing.T) {
+// The default is still the unforced call: force is opt-in per destroy, so a caller
+// that forgets the argument cannot discard work by omission.
+func TestDestroyArgv(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		force bool
+		want  string
+	}{
+		{"unforced", false, "destroy web"},
+		{"forced", true, "destroy web --force"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, log := recorder(t)
+			repo := t.TempDir()
+			runner := &script.Runner{Script: path, WorktreeRoot: "/w"}
+
+			if _, err := runner.Destroy(context.Background(), repo, "personal", "web", tc.force); err != nil {
+				t.Fatalf("Destroy: %v", err)
+			}
+
+			recorded, err := os.ReadFile(log)
+			if err != nil {
+				t.Fatalf("reading the recording: %v", err)
+			}
+			lines := strings.Split(strings.TrimSpace(string(recorded)), "\n")
+			if lines[0] != tc.want {
+				t.Errorf("argv = %q, want %q", lines[0], tc.want)
+			}
+			if lines[1] != "env personal /w none" {
+				t.Errorf("environment = %q, want the scope and worktree root", lines[1])
+			}
+			if lines[2] != repo {
+				t.Errorf("working directory = %q, want %q", lines[2], repo)
+			}
+		})
+	}
+}
+
+// Start and Stop must not have grown a --force of their own.
+func TestStartAndStopArgvUnchanged(t *testing.T) {
 	path, log := recorder(t)
 	repo := t.TempDir()
 	runner := &script.Runner{Script: path, WorktreeRoot: "/w"}
 
-	if _, err := runner.Destroy(context.Background(), repo, "personal", "web"); err != nil {
-		t.Fatalf("Destroy: %v", err)
+	if _, err := runner.Start(context.Background(), script.StartOpts{
+		Repo: repo, Name: "web", AppName: "personal",
+	}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := runner.Stop(context.Background(), repo, "personal", "web"); err != nil {
+		t.Fatalf("Stop: %v", err)
 	}
 
 	recorded, err := os.ReadFile(log)
@@ -276,14 +320,44 @@ func TestDestroyNeverForces(t *testing.T) {
 		t.Fatalf("reading the recording: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(recorded)), "\n")
-	if lines[0] != "destroy web" {
-		t.Errorf("argv = %q, want exactly \"destroy web\" with no --force", lines[0])
+	if lines[0] != "start web" {
+		t.Errorf("start argv = %q, want \"start web\"", lines[0])
 	}
-	if lines[1] != "env personal /w none" {
-		t.Errorf("environment = %q, want the scope and worktree root", lines[1])
+	if lines[3] != "stop web" {
+		t.Errorf("stop argv = %q, want \"stop web\"", lines[3])
 	}
-	if lines[2] != repo {
-		t.Errorf("working directory = %q, want %q", lines[2], repo)
+}
+
+// The end-to-end counterpart to TestDestroyArgv's forced case: against the real
+// script, --force must actually discard the dirty worktree and its branch.
+func TestDestroyForceRemovesDirtyWork(t *testing.T) {
+	runner, repo, stub := environment(t)
+	if _, err := runner.Start(context.Background(), script.StartOpts{
+		Repo: repo, Name: "web", Agent: "opencode", AppName: "personal",
+	}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	worktree := filepath.Join(runner.WorktreeRoot, "mercurius", "web")
+	if err := os.WriteFile(filepath.Join(worktree, "scratch"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("dirtying the worktree: %v", err)
+	}
+
+	result, err := runner.Destroy(context.Background(), repo, "personal", "web", true)
+	if err != nil {
+		t.Fatalf("Destroy: %v", err)
+	}
+	if result.Refused() {
+		t.Fatalf("--force still refused dirty work: %+v", result)
+	}
+	if _, err := os.Stat(worktree); !os.IsNotExist(err) {
+		t.Errorf("worktree survived a forced destroy: %v", err)
+	}
+	out, _ := exec.Command("git", "-C", repo, "branch", "--list", "agent/web").Output()
+	if strings.Contains(string(out), "agent/web") {
+		t.Errorf("branch survived a forced destroy: %q", out)
+	}
+	if !strings.Contains(strings.Join(stub.Calls(t), "\n"), "--app-name personal rm --force web") {
+		t.Errorf("sbx calls = %v, want the sandbox removed", stub.Calls(t))
 	}
 }
 
@@ -319,7 +393,7 @@ func TestScopeIsRequired(t *testing.T) {
 	path, _ := recorder(t)
 	runner := &script.Runner{Script: path, WorktreeRoot: "/w"}
 
-	if _, err := runner.Destroy(context.Background(), t.TempDir(), "", "web"); err == nil {
+	if _, err := runner.Destroy(context.Background(), t.TempDir(), "", "web", false); err == nil {
 		t.Fatal("Destroy ran without an app-name")
 	}
 }

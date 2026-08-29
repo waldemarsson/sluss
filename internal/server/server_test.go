@@ -30,8 +30,13 @@ func runner(t *testing.T) *script.Runner {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sluss")
-	body := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"" + filepath.Join(dir, "argv") + "\"\n" +
-		"if [ \"$1\" = destroy ]; then echo 'error: agent/web has uncommitted changes; commit them or use --force' >&2; exit 1; fi\n"
+	argv := filepath.Join(dir, "argv")
+	body := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"" + argv + "\"\n" +
+		"printf 'pwd=%s\\n' \"$PWD\" >> \"" + argv + "\"\n" +
+		"if [ \"$1\" = destroy ]; then\n" +
+		"  case \" $* \" in *\" --force \"*) exit 0;; esac\n" +
+		"  echo 'error: agent/web has uncommitted changes; commit them or use --force' >&2; exit 1\n" +
+		"fi\n"
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatalf("writing the fake script: %v", err)
 	}
@@ -528,6 +533,92 @@ func TestLifecycleOnAnUnknownSandbox(t *testing.T) {
 	if scoped.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d for an unconfigured scope, want 400", scoped.StatusCode)
 	}
+
+	started := postJSON(t, base+"/api/sandboxes/personal/ghost/start", "")
+	defer started.Body.Close()
+	if started.StatusCode != http.StatusNotFound {
+		t.Errorf("start status = %d, want 404", started.StatusCode)
+	}
+	if argv := recordedArgv(t); strings.Contains(argv, "start ghost") {
+		t.Errorf("script argv = %q, want no run for an unknown sandbox", argv)
+	}
+}
+
+// The fixture's "web" is stopped, which is the only state the dashboard offers start
+// for. The repository is taken from the snapshot, never from the request: the script
+// must run in the configured checkout even though the caller named no path.
+func TestStartResumesAKnownSandbox(t *testing.T) {
+	base, _ := serve(t)
+
+	resp := postJSON(t, base+"/api/sandboxes/personal/web/start", "")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d body %s, want 200", resp.StatusCode, body)
+	}
+	argv := recordedArgv(t)
+	if !strings.Contains(argv, "start web") {
+		t.Errorf("script argv = %q, want the start command", argv)
+	}
+	if want := "pwd=" + os.Getenv("SLUSS_TEST_REPO"); !strings.Contains(argv, want) {
+		t.Errorf("recording = %q, want the script run in %q", argv, want)
+	}
+}
+
+// The dashboard does not offer start for a running sandbox, but the route must not
+// punish one that arrives anyway — a second tab, or a click racing the poll (AC7).
+func TestStartOnARunningSandboxIsHarmless(t *testing.T) {
+	base, _ := serve(t)
+
+	resp := postJSON(t, base+"/api/sandboxes/personal/auth/start", "")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d body %s, want 200", resp.StatusCode, body)
+	}
+	if argv := recordedArgv(t); !strings.Contains(argv, "start auth") {
+		t.Errorf("script argv = %q, want the start command", argv)
+	}
+}
+
+// force is opt-in and spelled exactly: anything else is not a licence to discard
+// work, so a typo in the query string degrades to the safe path.
+func TestDestroyForceIsExplicit(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		query  string
+		forced bool
+		status int
+	}{
+		{"absent", "", false, http.StatusConflict},
+		{"true", "?force=true", true, http.StatusOK},
+		{"one", "?force=1", false, http.StatusConflict},
+		{"yes", "?force=yes", false, http.StatusConflict},
+		{"empty", "?force=", false, http.StatusConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base, _ := serve(t)
+
+			req, err := http.NewRequest(http.MethodDelete, base+"/api/sandboxes/personal/auth"+tc.query, nil)
+			if err != nil {
+				t.Fatalf("building request: %v", err)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("DELETE: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tc.status {
+				t.Errorf("status = %d, want %d", resp.StatusCode, tc.status)
+			}
+			if forced := strings.Contains(recordedArgv(t), "--force"); forced != tc.forced {
+				t.Errorf("argv = %q, --force present = %v, want %v", recordedArgv(t), forced, tc.forced)
+			}
+		})
+	}
 }
 
 // secretServer wires a server whose sbx stub records everything it is asked.
@@ -866,6 +957,7 @@ func TestMutatingRoutesRefuseCrossSiteRequests(t *testing.T) {
 	}{
 		{"cross-site create", http.MethodPost, "/api/sandboxes", "application/json", "cross-site", http.StatusForbidden},
 		{"cross-site destroy", http.MethodDelete, "/api/sandboxes/personal/auth", "", "cross-site", http.StatusForbidden},
+		{"cross-site start", http.MethodPost, "/api/sandboxes/personal/web/start", "application/json", "cross-site", http.StatusForbidden},
 		{"cross-site secret", http.MethodPut, "/api/secrets/personal/TOKEN", "text/plain", "cross-site", http.StatusForbidden},
 		{"simple-request create", http.MethodPost, "/api/sandboxes", "text/plain", "", http.StatusUnsupportedMediaType},
 		{"form-encoded create", http.MethodPost, "/api/sandboxes", "application/x-www-form-urlencoded", "", http.StatusUnsupportedMediaType},

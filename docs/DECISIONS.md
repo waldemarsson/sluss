@@ -352,3 +352,36 @@ exactly the path a phone bookmark takes. `TestBuiltDashboardNestsConfigRoutes` i
 nothing. A route that must be reachable cold and is *not* linked from another page still needs to
 be prerendered — the crawler is what discovers them.
 
+---
+
+## D20 — Force destroy is available from the dashboard, behind a confirm
+
+**Chosen:** `DELETE /api/sandboxes/{scope}/{name}?force=true` passes `--force` to
+`scripts/sluss destroy`. The dashboard shows a per-sandbox `force` checkbox, confirms every
+destroy whether or not it is ticked, names what force discards in the prompt, and clears the
+checkbox once the destroy returns.
+
+**Why:** this reverses an earlier instruction in `AGENTS.md` — that slussd never passes `--force`
+and that "a confirmation prompt is the wrong affordance". What changed is the deployment, not the
+judgement about how costly a lost afternoon is. The refusal has no terminal escape hatch when the
+dashboard is the only thing in reach: a dirty sandbox opened from a phone over the VPN could be
+seen, stopped and connected to, but not removed. The earlier reasoning assumed a terminal is
+always available, and on the NAS deployment it is not.
+
+The unforced path is unchanged and is still the default. Force is opt-in per destroy, spelled
+exactly `true`, and never sticky.
+
+**Rejected:**
+- *Two-stage "try, then confirm the refusal"* — attempt unforced, then offer "destroy anyway" with
+  the script's own message as the warning. It cannot disagree with the script about what would be
+  lost, which is genuinely better, but it costs a round trip and a second dialog on a phone. The
+  checkbox arms the same capability in one gesture and the confirm still names the cost.
+- *A `force` flag remembered per session* — one tick, then every later destroy is forced. This is
+  the failure mode the per-sandbox reset exists to prevent.
+- *Leaving it terminal-only* — the status quo, and the thing that made a sandbox undeletable from
+  the deployment sluss was built for.
+
+**Consequence:** the confirm and the per-sandbox reset are correctness requirements with tests
+against them, not UI polish. `internal/script`'s `Destroy` takes `force` as an explicit parameter
+so a caller cannot discard work by omission, and its false case is covered by a test.
+

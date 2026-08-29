@@ -78,7 +78,7 @@ read path must tolerate a missing sandbox or a vanished worktree and report it r
 
 **Error messages from sbx.** These are the bulk of the work and the difference between a script and a tool. "not logged in", "daemon not running", "name already exists", "kit fetch failed", "network policy blocked the install hook" each need a readable message with a suggested fix. Don't dump raw stderr.
 
-**Destroy is destructive.** `scripts/sluss destroy` already refuses uncommitted or unmerged work without `--force`. `slussd` surfaces that refusal unchanged and never passes `--force` — discarding unmerged work stays a deliberate terminal action. A confirmation prompt is the wrong affordance when the cost is losing an afternoon of agent work.
+**Destroy is destructive.** `scripts/sluss destroy` refuses uncommitted or unmerged work without `--force`, and that refusal is the default path everywhere: `slussd` surfaces it unchanged and passes `--force` only when the request asks for it with `?force=true` — exactly that value, so a typo cannot arm it. The dashboard confirms **every** destroy and arms force per sandbox, disarming it again afterwards, so a box left ticked on one row can never force another. Do not make force the default, do not remember it across destroys, and do not remove the confirm (D20).
 
 **Dashboard auth is deferred by decision.** Do **not** add a token gate to mutating routes. Reachability is the whole auth story: `lan: false` binds loopback, and the NAS deployment is LAN- and VPN-only, inheriting the homelab's documented and accepted stance for its existing opencode VM. Revisit only under the conditions homelab names — reachable from outside the VPN, or untrusted devices on the LAN.
 
@@ -91,6 +91,10 @@ read path must tolerate a missing sandbox or a vanished worktree and report it r
   (Vitest `unit` on node, `component` in a real headless Chromium). CI runs both. The
   component project needs Chromium in `~/.cache/ms-playwright`; the devcontainer installs it
   in postCreate, so on a fresh container run `task test:web` only after the rebuild finishes.
+- **The dashboard has no formatter.** Prettier and ESLint are not dependencies and there is no
+  config for either, so running one reformats the whole file to its defaults and buries the real
+  change. `task check:web` (svelte-check) and `task test:web` are the only frontend gates; match
+  the surrounding style by hand — tabs, single quotes.
 - When a spec detail is ambiguous, ask rather than guessing. This spec was iterated a lot; the gaps that remain are usually genuine uncertainty, not oversight.
 - If you discover sbx behaves differently to what the spec assumes, **stop and report it**. Several design decisions rest on sbx's actual behaviour; a wrong assumption should change the spec, not get worked around in code.
 - The plan's tasks are the unit of work: one task, one green gate, one commit. Don't gold-plate a
