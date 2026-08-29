@@ -1,16 +1,17 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import type { ApiError, Sandbox } from '#lib/api.js';
+	import { MediaQuery } from 'svelte/reactivity';
+	import { command, type Result, type Sandbox } from '#lib/api.js';
 	import { access } from '#lib/access.svelte.js';
 	import { fleet } from '#lib/fleet.svelte.js';
 
-	// One breakpoint, shared with the media queries below, so the table/card switch and
-	// the responsive styles can never disagree about what "narrow" means.
-	const WIDE = '(min-width: 48rem)';
-
-	// Read before the first render, not in onMount: ssr is off, so `window` is already
-	// here and deferring it would paint the narrow layout once on every desktop load.
-	let wide = $state(window.matchMedia(WIDE).matches);
+	// 48rem is the dashboard breakpoint, and CSS cannot read this value, so it is restated
+	// as `max-width: 47.999rem` in three stylesheets: app.css, lib/Secrets.svelte and
+	// lib/Kits.svelte. Four sites in all — change one and change the rest.
+	//
+	// MediaQuery reads `window.matchMedia` in its constructor, so `current` is right before
+	// the first render: ssr is off, and deferring the read would paint the narrow layout once
+	// on every desktop load.
+	const wide = new MediaQuery('min-width: 48rem');
 	let opened = $state(false);
 	let copied = $state('');
 	let busy = $state('');
@@ -26,27 +27,24 @@
 	// Empty means "whichever is first", the same shape Secrets.svelte uses for scopes:
 	// the configuration arrives after the first render, so nothing can be assigned into
 	// the form up front.
-	let repo = $derived(chosen.repo || access.config.repos?.[0] || '');
-	let scope = $derived(chosen.scope || access.config.scopes?.[0] || '');
+	let repo = $derived(chosen.repo || access.config.repos[0] || '');
+	let scope = $derived(chosen.scope || access.config.scopes[0] || '');
 	// On a phone the four controls fill the screen before a single sandbox appears, so
 	// they collapse; on a desktop there is room and the disclosure would only be a click
 	// in the way.
-	let formVisible = $derived(wide || opened);
-	let configured = $derived((access.config.repos?.length ?? 0) > 0);
-
-	onMount(() => {
-		const query = window.matchMedia(WIDE);
-		const sync = () => (wide = query.matches);
-		query.addEventListener('change', sync);
-		return () => query.removeEventListener('change', sync);
-	});
+	let formVisible = $derived(wide.current || opened);
+	let configured = $derived(access.config.repos.length > 0);
 
 	// OpenCode is reached through sluss. Claude Code and Copilot have their own
 	// remote interfaces, so they get deep links and are never proxied.
-	function connectTo(sandbox: Sandbox): { href: string; label: string } | null {
+	type Connect = { href: string; label: string };
+
+	function connectTo(sandbox: Sandbox): Connect | null {
 		if (sandbox.agent === 'claude') return { href: 'https://claude.ai/code', label: 'claude.ai' };
-		if (sandbox.agent === 'copilot') return { href: 'https://github.com/copilot', label: 'github.com' };
-		if (sandbox.agent !== 'opencode' || sandbox.status !== 'running' || !sandbox.webPort) return null;
+		if (sandbox.agent === 'copilot')
+			return { href: 'https://github.com/copilot', label: 'github.com' };
+		if (sandbox.agent !== 'opencode' || sandbox.status !== 'running' || !sandbox.webPort)
+			return null;
 		if (access.config.access === 'host') {
 			return {
 				href: `${location.protocol}//${access.config.hostPrefix}${sandbox.name}.${access.config.domain}/`,
@@ -58,26 +56,18 @@
 
 	// Every mutation runs scripts/sluss on the server. A refusal comes back as 409
 	// with the script's own message, which is shown unchanged.
-	async function act(label: string, request: () => Promise<Response>) {
+	async function act(label: string, run: () => Promise<Result<void>>) {
 		busy = label;
 		problem = '';
-		try {
-			const response = await request();
-			if (!response.ok) {
-				const body: ApiError = await response.json().catch(() => ({}));
-				problem = (body.stderr || body.error || `failed with ${response.status}`).trim();
-			}
-		} catch (error) {
-			problem = String(error);
-		} finally {
-			busy = '';
-		}
+		const result = await run();
+		if (!result.ok) problem = result.message;
+		busy = '';
 	}
 
 	function create(event: SubmitEvent) {
 		event.preventDefault();
 		return act('create', () =>
-			fetch('/api/sandboxes', {
+			command('/api/sandboxes', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ repo, scope, name: chosen.name, agent: chosen.agent })
@@ -89,7 +79,7 @@
 
 	function start(sandbox: Sandbox) {
 		return act(keyOf(sandbox), () =>
-			fetch(`/api/sandboxes/${sandbox.scope}/${sandbox.name}/start`, {
+			command(`/api/sandboxes/${sandbox.scope}/${sandbox.name}/start`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: '{}'
@@ -99,7 +89,7 @@
 
 	function stop(sandbox: Sandbox) {
 		return act(keyOf(sandbox), () =>
-			fetch(`/api/sandboxes/${sandbox.scope}/${sandbox.name}/stop`, {
+			command(`/api/sandboxes/${sandbox.scope}/${sandbox.name}/stop`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: '{}'
@@ -121,7 +111,7 @@
 			: `Destroy ${sandbox.name}?`;
 		if (!window.confirm(warning)) return;
 		await act(key, () =>
-			fetch(`/api/sandboxes/${sandbox.scope}/${sandbox.name}${force ? '?force=true' : ''}`, {
+			command(`/api/sandboxes/${sandbox.scope}/${sandbox.name}${force ? '?force=true' : ''}`, {
 				method: 'DELETE'
 			})
 		);
@@ -147,20 +137,30 @@
 	<!-- The configuration is one request away; saying anything here would only be
 	     replaced a moment later. -->
 {:else if !configured}
-	<p class="muted">No repositories configured — see the <code>repos</code> key in the config file.</p>
+	<p class="muted">
+		No repositories configured — see the <code>repos</code> key in the config file.
+	</p>
 {:else if !formVisible}
 	<button class="disclose" onclick={() => (opened = true)}>New sandbox</button>
 {/if}
 
 {#if access.loaded && configured && formVisible}
 	<form onsubmit={create}>
-		<select value={repo} onchange={(event) => (chosen.repo = event.currentTarget.value)} aria-label="repository">
-			{#each access.config.repos ?? [] as option (option)}
+		<select
+			value={repo}
+			onchange={(event) => (chosen.repo = event.currentTarget.value)}
+			aria-label="repository"
+		>
+			{#each access.config.repos as option (option)}
 				<option value={option}>{option}</option>
 			{/each}
 		</select>
-		<select value={scope} onchange={(event) => (chosen.scope = event.currentTarget.value)} aria-label="scope">
-			{#each access.config.scopes ?? [] as option (option)}
+		<select
+			value={scope}
+			onchange={(event) => (chosen.scope = event.currentTarget.value)}
+			aria-label="scope"
+		>
+			{#each access.config.scopes as option (option)}
 				<option value={option}>{option}</option>
 			{/each}
 		</select>
@@ -190,11 +190,61 @@
 	<p class="muted">No sandboxes in any configured scope.</p>
 {/if}
 
+<!-- What every row carries, declared once and rendered from whichever of the two layouts is
+     live. A snippet renders only where it is called, so the table and the cards still put one
+     of everything in the DOM — the same invariant the two branches below have always held. -->
+{#snippet branch(sandbox: Sandbox)}
+	{#if sandbox.missing}
+		<span class="warn">worktree missing</span>
+	{:else}
+		{sandbox.branch}
+	{/if}
+{/snippet}
+
+{#snippet work(sandbox: Sandbox)}
+	{#if sandbox.dirty}<span class="warn">dirty</span>{/if}
+	{#if sandbox.unmerged > 0}<span class="warn">{sandbox.unmerged} unmerged</span>{/if}
+	{#if !sandbox.dirty && sandbox.unmerged === 0 && !sandbox.missing}
+		<span class="muted">clean</span>
+	{/if}
+{/snippet}
+
+{#snippet connectLink(connect: Connect)}
+	<a href={connect.href} target="_blank" rel="noreferrer">{connect.label}</a>
+{/snippet}
+
+{#snippet attach(sandbox: Sandbox)}
+	<button onclick={() => copyAttach(sandbox.name)}>
+		{copied === sandbox.name ? 'copied' : 'sluss attach'}
+	</button>
+{/snippet}
+
+{#snippet lifecycle(sandbox: Sandbox)}
+	{#if sandbox.status === 'running'}
+		<button onclick={() => stop(sandbox)} disabled={busy !== ''}>stop</button>
+	{:else}
+		<button aria-label="start {sandbox.name}" onclick={() => start(sandbox)} disabled={busy !== ''}
+			>start</button
+		>
+	{/if}
+	<label class="force">
+		<input
+			type="checkbox"
+			aria-label="force destroy {sandbox.name}"
+			disabled={busy !== ''}
+			checked={forcing === keyOf(sandbox)}
+			onchange={(event) => (forcing = event.currentTarget.checked ? keyOf(sandbox) : '')}
+		/>
+		<span>force</span>
+	</label>
+	<button onclick={() => destroy(sandbox)} disabled={busy !== ''}>destroy</button>
+{/snippet}
+
 {#each repos as group (group.repo)}
 	<section>
 		<h2>{group.name}<span class="muted"> · {group.repo}</span></h2>
 
-		{#if wide}
+		{#if wide.current}
 			<table>
 				<thead>
 					<tr>
@@ -215,52 +265,19 @@
 						<tr>
 							<td>{sandbox.name}</td>
 							<td class="muted">{sandbox.scope}</td>
-							<td>
-								{#if sandbox.missing}
-									<span class="warn">worktree missing</span>
-								{:else}
-									{sandbox.branch}
-								{/if}
-							</td>
+							<td>{@render branch(sandbox)}</td>
 							<td>{sandbox.agent}</td>
 							<td class:running={sandbox.status === 'running'}>{sandbox.status}</td>
-							<td>
-								{#if sandbox.dirty}<span class="warn">dirty</span>{/if}
-								{#if sandbox.unmerged > 0}<span class="warn">{sandbox.unmerged} unmerged</span>{/if}
-								{#if !sandbox.dirty && sandbox.unmerged === 0 && !sandbox.missing}
-									<span class="muted">clean</span>
-								{/if}
-							</td>
+							<td>{@render work(sandbox)}</td>
 							<td>
 								{#if connect}
-									<a href={connect.href} target="_blank" rel="noreferrer">{connect.label}</a>
+									{@render connectLink(connect)}
 								{:else}
 									<span class="muted">—</span>
 								{/if}
 							</td>
-							<td>
-								<button onclick={() => copyAttach(sandbox.name)}>
-									{copied === sandbox.name ? 'copied' : 'sluss attach'}
-								</button>
-							</td>
-							<td>
-								{#if sandbox.status === 'running'}
-									<button onclick={() => stop(sandbox)} disabled={busy !== ''}>stop</button>
-								{:else}
-									<button aria-label="start {sandbox.name}" onclick={() => start(sandbox)} disabled={busy !== ''}>start</button>
-								{/if}
-								<label class="force">
-									<input
-										type="checkbox"
-										aria-label="force destroy {sandbox.name}"
-										disabled={busy !== ''}
-										checked={forcing === keyOf(sandbox)}
-										onchange={(event) => (forcing = event.currentTarget.checked ? keyOf(sandbox) : '')}
-									/>
-									<span>force</span>
-								</label>
-								<button onclick={() => destroy(sandbox)} disabled={busy !== ''}>destroy</button>
-							</td>
+							<td>{@render attach(sandbox)}</td>
+							<td>{@render lifecycle(sandbox)}</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -278,43 +295,18 @@
 						</div>
 						<p class="meta">
 							<span class="muted">{sandbox.scope}</span> ·
-							{#if sandbox.missing}
-								<span class="warn">worktree missing</span>
-							{:else}
-								{sandbox.branch}
-							{/if}
+							{@render branch(sandbox)}
 							· {sandbox.agent}
 						</p>
-						<p class="work">
-							{#if sandbox.dirty}<span class="warn">dirty</span>{/if}
-							{#if sandbox.unmerged > 0}<span class="warn">{sandbox.unmerged} unmerged</span>{/if}
-							{#if !sandbox.dirty && sandbox.unmerged === 0 && !sandbox.missing}
-								<span class="muted">clean</span>
-							{/if}
-						</p>
+						<p class="work">{@render work(sandbox)}</p>
 						<div class="actions">
 							{#if connect}
-								<a href={connect.href} target="_blank" rel="noreferrer">{connect.label}</a>
+								{@render connectLink(connect)}
 							{/if}
-							<button onclick={() => copyAttach(sandbox.name)}>
-								{copied === sandbox.name ? 'copied' : 'sluss attach'}
-							</button>
-							{#if sandbox.status === 'running'}
-								<button onclick={() => stop(sandbox)} disabled={busy !== ''}>stop</button>
-							{:else}
-								<button aria-label="start {sandbox.name}" onclick={() => start(sandbox)} disabled={busy !== ''}>start</button>
-							{/if}
-							<label class="force">
-								<input
-									type="checkbox"
-									aria-label="force destroy {sandbox.name}"
-									disabled={busy !== ''}
-									checked={forcing === keyOf(sandbox)}
-									onchange={(event) => (forcing = event.currentTarget.checked ? keyOf(sandbox) : '')}
-								/>
-								<span>force</span>
-							</label>
-							<button onclick={() => destroy(sandbox)} disabled={busy !== ''}>destroy</button>
+							{@render attach(sandbox)}
+						</div>
+						<div class="actions lifecycle">
+							{@render lifecycle(sandbox)}
 						</div>
 					</li>
 				{/each}
@@ -391,6 +383,13 @@
 	}
 	/* Every control in a card is a thumb target, including the anchor, which is why it
 	   is boxed like the buttons beside it. */
+	/* The lifecycle controls get a row of their own. Sharing one wrapping row with the
+	   connect link and the attach button, the arming checkbox moved with the control
+	   count — on a card with a connect link it wrapped onto the row above the destroy
+	   button it arms, and on a card without one it sat beside it. */
+	.actions.lifecycle {
+		margin-top: 0.5rem;
+	}
 	.actions > * {
 		flex: 1 1 auto;
 		min-height: 44px;
@@ -411,6 +410,11 @@
 		align-items: center;
 		gap: 0.3rem;
 		white-space: nowrap;
+	}
+	/* Fixed width inside the lifecycle row: start/stop and destroy take the slack, so
+	   the checkbox holds one position across every card. */
+	.actions > .force {
+		flex: 0 0 auto;
 	}
 	.force input {
 		/* A default checkbox is a pointer target; this is the smallest square that is

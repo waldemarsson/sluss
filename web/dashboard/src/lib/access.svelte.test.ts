@@ -33,7 +33,10 @@ test('fetches the configuration once and holds it', async () => {
 // slussd not answering is not worth breaking the page over: the create form is empty,
 // everything else still works.
 test('survives a failed fetch with the empty configuration', async () => {
-	vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new Error('offline'))));
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async () => Promise.reject(new Error('offline')))
+	);
 	const access = new Access();
 
 	access.load();
@@ -43,4 +46,23 @@ test('survives a failed fetch with the empty configuration', async () => {
 
 	expect(access.config.repos).toEqual([]);
 	expect(access.config.scopes).toEqual([]);
+});
+
+// The wire is untyped: a body missing a key must not become a missing array in every
+// consumer. The defaults live in one place so no route has to guard the read.
+test('fills in the keys a partial configuration leaves out', async () => {
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async () => new Response(JSON.stringify({ access: 'host' }), { status: 200 }))
+	);
+	const access = new Access();
+
+	access.load();
+	await vi.waitFor(() => expect(access.loaded).toBe(true));
+
+	expect(access.config.access).toBe('host');
+	expect(access.config.repos).toEqual([]);
+	expect(access.config.scopes).toEqual([]);
+	expect(access.config.hostPrefix).toBe('sluss-');
+	expect(access.config.domain).toBe('');
 });

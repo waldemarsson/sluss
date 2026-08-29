@@ -68,6 +68,12 @@ tasks:
           exit 1
         fi
 
+  fmt:web:
+    desc: Format the dashboard with Prettier
+    dir: web/dashboard
+    cmds:
+      - npm run format
+
   vet:
     cmds:
       - go vet ./...
@@ -77,9 +83,11 @@ tasks:
       - go test ./...
 
   check:web:
-    desc: svelte-check over the dashboard
+    desc: Prettier and svelte-check over the dashboard
     dir: web/dashboard
     cmds:
+      # Formatting first: it is the cheaper failure and the one with a one-command fix.
+      - npm run format:check
       - npm run check
 
   test:web:

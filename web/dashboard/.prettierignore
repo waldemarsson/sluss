@@ -1,0 +1,6 @@
+.svelte-kit
+build
+coverage
+.vitest-attachments
+src/**/__screenshots__
+package-lock.json
