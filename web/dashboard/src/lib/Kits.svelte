@@ -118,4 +118,17 @@
 		border-radius: 4px;
 		padding: 0.5rem;
 	}
+	@media (max-width: 47.999rem) {
+		.row {
+			flex-wrap: wrap;
+		}
+		/* The spec is the whole point of this route, so on a phone it gets the screen.
+		   The 16px is app.css's rule restated: a scoped selector carries a .svelte-*
+		   class and outranks the bare `textarea` one, so the shared rule cannot reach
+		   this editor and Safari would zoom the page when it took focus. */
+		textarea {
+			min-height: 55vh;
+			font-size: 16px;
+		}
+	}
 </style>

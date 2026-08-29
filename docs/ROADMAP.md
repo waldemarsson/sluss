@@ -15,7 +15,7 @@ run against a real sandbox, and three items below need hardware the devcontainer
 | **Script workflow** | `scripts/sluss` — worktree, branch, sandbox, attach, stop, destroy. Unchanged by the daemon work and still the only implementation of lifecycle. |
 | **Fleet** | `internal/sbx` (the one place sbx is invoked), `internal/gitfacts`, `internal/fleet` — a stateless poll loop producing an immutable snapshot per tick. |
 | **Serving** | `internal/server` (dashboard, JSON, SSE, lifecycle, secrets, kits) and `internal/proxy` (one port, `path` and `host` addressing, `FlushInterval: -1`). |
-| **Dashboard** | SvelteKit, adapter-static, embedded via `go:embed`: fleet table, create form, secrets pane, kit editor. |
+| **Dashboard** | SvelteKit, adapter-static, embedded via `go:embed`. The fleet and create form at `/`, secrets and kits at `/config/…` behind a top bar (D19). Built for a phone: the fleet becomes a card per sandbox and the create form collapses below `48rem`. |
 | **Command** | `slussd serve`, `slussd doctor`, `slussd version`. |
 
 The milestones this replaces are worth naming, because their absence is deliberate: **M2's

@@ -57,6 +57,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/fleet", s.handleFleet)
 	mux.HandleFunc("GET /api/events", s.handleEvents)
 	mux.HandleFunc("POST /api/sandboxes", guard(s.handleCreate))
+	mux.HandleFunc("POST /api/sandboxes/{scope}/{name}/start", guard(s.handleStart))
 	mux.HandleFunc("POST /api/sandboxes/{scope}/{name}/stop", guard(s.handleStop))
 	mux.HandleFunc("DELETE /api/sandboxes/{scope}/{name}", guard(s.handleDestroy))
 	mux.HandleFunc("GET /api/secrets/{scope}", s.handleSecretList)
@@ -280,8 +281,33 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	writeResult(w, result, err)
 }
 
-// handleDestroy never forces. The script refuses dirty or unmerged work, and that
-// refusal is what reaches the user (AC10).
+// handleStart resumes a sandbox the fleet already knows about. The repository comes
+// from the snapshot rather than the request, so this route accepts no filesystem
+// path from the browser: handleCreate stays the only place a client names a
+// directory, and the only place the configured-repo guard has to hold.
+func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
+	sandbox, ok := s.sandboxFor(w, r)
+	if !ok {
+		return
+	}
+	if sandbox.Repo == "" {
+		writeError(w, http.StatusConflict, fmt.Sprintf(
+			"cannot tell which repository %q belongs to; start it from a terminal", sandbox.Name))
+		return
+	}
+	ctx, cancel := lifecycleContext(r)
+	defer cancel()
+	// The agent is carried over so a sandbox whose worktree has gone missing is
+	// recreated as what it was, rather than as the configured default.
+	result, err := s.runner.Start(ctx, script.StartOpts{
+		Repo: sandbox.Repo, Name: sandbox.Name, Agent: sandbox.Agent, AppName: sandbox.Scope,
+	})
+	writeResult(w, result, err)
+}
+
+// handleDestroy defaults to the script's refusal on dirty or unmerged work, which
+// reaches the user unchanged. "?force=true" — and only that exact value — discards
+// it instead; the dashboard confirms every destroy and arms force per sandbox (D20).
 func (s *Server) handleDestroy(w http.ResponseWriter, r *http.Request) {
 	sandbox, ok := s.sandboxFor(w, r)
 	if !ok {
@@ -294,7 +320,8 @@ func (s *Server) handleDestroy(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := lifecycleContext(r)
 	defer cancel()
-	result, err := s.runner.Destroy(ctx, sandbox.Repo, sandbox.Scope, sandbox.Name)
+	force := r.URL.Query().Get("force") == "true"
+	result, err := s.runner.Destroy(ctx, sandbox.Repo, sandbox.Scope, sandbox.Name, force)
 	writeResult(w, result, err)
 }
 

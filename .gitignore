@@ -14,6 +14,8 @@
 
 # Vitest
 /web/dashboard/coverage/
+/web/dashboard/.vitest-attachments/
+/web/dashboard/src/**/__screenshots__/
 
 # Editors / OS
 .DS_Store

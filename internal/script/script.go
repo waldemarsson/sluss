@@ -2,9 +2,9 @@
 //
 // The script is the one implementation of worktree lifecycle, and it is unchanged
 // by the GUI: creating a sandbox from the browser runs the same code path as typing
-// the command, so the worktree, branch and mounts cannot drift apart. Destroy is
-// never forced from here — the script's refusal on dirty or unmerged work is the
-// safety property, not an obstacle.
+// the command, so the worktree, branch and mounts cannot drift apart. Destroy
+// defaults to the script's refusal on dirty or unmerged work and that refusal
+// reaches the user unchanged; forcing past it is an explicit per-call choice.
 package script
 
 import (
@@ -84,10 +84,16 @@ func (r *Runner) Stop(ctx context.Context, repo, appName string, names ...string
 	return r.run(ctx, repo, appName, "", append([]string{"stop"}, names...)...)
 }
 
-// Destroy removes a sandbox, its worktree and its branch. --force is deliberately
-// not passed and not offered: discarding unmerged work stays a terminal decision.
-func (r *Runner) Destroy(ctx context.Context, repo, appName, name string) (Result, error) {
-	return r.run(ctx, repo, appName, "", "destroy", name)
+// Destroy removes a sandbox, its worktree and its branch. force passes --force,
+// discarding uncommitted and unmerged work; without it the script refuses and that
+// refusal is the answer, not an error. Callers ask the human first — the dashboard
+// confirms every destroy and arms force per sandbox (D20).
+func (r *Runner) Destroy(ctx context.Context, repo, appName, name string, force bool) (Result, error) {
+	args := []string{"destroy", name}
+	if force {
+		args = append(args, "--force")
+	}
+	return r.run(ctx, repo, appName, "", args...)
 }
 
 func (r *Runner) run(ctx context.Context, repo, appName, agent string, args ...string) (Result, error) {

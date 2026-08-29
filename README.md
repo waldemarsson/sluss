@@ -91,11 +91,22 @@ proxied; the dashboard deep-links to `claude.ai/code` and `github.com` instead.
 
 There is **no authentication**, by decision (D15): reachability is the boundary, so keep `lan`
 false unless the network in front of it is one you trust. Mutating requests do reject cross-site
-browser calls, but that closes drive-by requests only — it is not auth.
+browser calls, but that closes drive-by requests only — it is not auth. Weigh that against what
+the dashboard can now do: destroy with `force` discards uncommitted and unmerged work
+irreversibly (D20), so anyone who can reach the page can throw away an afternoon of it.
 
-The dashboard also offers a write-only secrets pane per scope (names are listed, values only ever
-go in) and a plain-text editor for each kit's `spec.yaml`, with the kits directory's git status
-beside it. Committing kits stays a manual step.
+The fleet is the dashboard's home page. Each sandbox carries its own lifecycle controls: **start**
+for a stopped one, **stop** for a running one, and **destroy**, which always asks for confirmation
+first. Destroy otherwise defers to the script's refusal on uncommitted or unmerged work; the
+per-sandbox **force** box discards it instead, and is cleared again after every destroy so it can
+never carry over to another sandbox. A top bar leads to the configuration areas at
+`/config/secrets` and `/config/kits`. Secrets are write-only per scope (names are listed, values
+only ever go in), and each kit's `spec.yaml` gets a plain-text editor with the kits directory's
+git status beside it. Committing kits stays a manual step.
+
+Both work on a phone, which is how the NAS is usually reached: the fleet table becomes a card per
+sandbox on a narrow screen, and the create form collapses behind a **New sandbox** button so the
+sandboxes are what you see first.
 
 ## Lightweight sbx workflow
 
