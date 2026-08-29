@@ -10,10 +10,9 @@ const top = [
 test('marks the dashboard on the dashboard', async () => {
 	const screen = await render(NavLinks, { links: top, pathname: '/' });
 
-	await expect.element(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute(
-		'aria-current',
-		'page'
-	);
+	await expect
+		.element(screen.getByRole('link', { name: 'Dashboard' }))
+		.toHaveAttribute('aria-current', 'page');
 	expect(
 		screen.getByRole('link', { name: 'Configuration' }).element().getAttribute('aria-current')
 	).toBe(null);
@@ -23,10 +22,9 @@ test('marks the dashboard on the dashboard', async () => {
 test('marks configuration anywhere under it', async () => {
 	const screen = await render(NavLinks, { links: top, pathname: '/config/kits/' });
 
-	await expect.element(screen.getByRole('link', { name: 'Configuration' })).toHaveAttribute(
-		'aria-current',
-		'page'
-	);
+	await expect
+		.element(screen.getByRole('link', { name: 'Configuration' }))
+		.toHaveAttribute('aria-current', 'page');
 	expect(
 		screen.getByRole('link', { name: 'Dashboard' }).element().getAttribute('aria-current')
 	).toBe(null);
@@ -41,10 +39,9 @@ test('marks the current area in the configuration sub-navigation', async () => {
 		pathname: '/config/kits/'
 	});
 
-	await expect.element(screen.getByRole('link', { name: 'Kits' })).toHaveAttribute(
-		'aria-current',
-		'page'
-	);
+	await expect
+		.element(screen.getByRole('link', { name: 'Kits' }))
+		.toHaveAttribute('aria-current', 'page');
 	expect(screen.getByRole('link', { name: 'Secrets' }).element().getAttribute('aria-current')).toBe(
 		null
 	);

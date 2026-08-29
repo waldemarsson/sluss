@@ -45,8 +45,10 @@
 	// remote interfaces, so they get deep links and are never proxied.
 	function connectTo(sandbox: Sandbox): { href: string; label: string } | null {
 		if (sandbox.agent === 'claude') return { href: 'https://claude.ai/code', label: 'claude.ai' };
-		if (sandbox.agent === 'copilot') return { href: 'https://github.com/copilot', label: 'github.com' };
-		if (sandbox.agent !== 'opencode' || sandbox.status !== 'running' || !sandbox.webPort) return null;
+		if (sandbox.agent === 'copilot')
+			return { href: 'https://github.com/copilot', label: 'github.com' };
+		if (sandbox.agent !== 'opencode' || sandbox.status !== 'running' || !sandbox.webPort)
+			return null;
 		if (access.config.access === 'host') {
 			return {
 				href: `${location.protocol}//${access.config.hostPrefix}${sandbox.name}.${access.config.domain}/`,
@@ -147,19 +149,29 @@
 	<!-- The configuration is one request away; saying anything here would only be
 	     replaced a moment later. -->
 {:else if !configured}
-	<p class="muted">No repositories configured — see the <code>repos</code> key in the config file.</p>
+	<p class="muted">
+		No repositories configured — see the <code>repos</code> key in the config file.
+	</p>
 {:else if !formVisible}
 	<button class="disclose" onclick={() => (opened = true)}>New sandbox</button>
 {/if}
 
 {#if access.loaded && configured && formVisible}
 	<form onsubmit={create}>
-		<select value={repo} onchange={(event) => (chosen.repo = event.currentTarget.value)} aria-label="repository">
+		<select
+			value={repo}
+			onchange={(event) => (chosen.repo = event.currentTarget.value)}
+			aria-label="repository"
+		>
 			{#each access.config.repos ?? [] as option (option)}
 				<option value={option}>{option}</option>
 			{/each}
 		</select>
-		<select value={scope} onchange={(event) => (chosen.scope = event.currentTarget.value)} aria-label="scope">
+		<select
+			value={scope}
+			onchange={(event) => (chosen.scope = event.currentTarget.value)}
+			aria-label="scope"
+		>
 			{#each access.config.scopes ?? [] as option (option)}
 				<option value={option}>{option}</option>
 			{/each}
@@ -247,7 +259,11 @@
 								{#if sandbox.status === 'running'}
 									<button onclick={() => stop(sandbox)} disabled={busy !== ''}>stop</button>
 								{:else}
-									<button aria-label="start {sandbox.name}" onclick={() => start(sandbox)} disabled={busy !== ''}>start</button>
+									<button
+										aria-label="start {sandbox.name}"
+										onclick={() => start(sandbox)}
+										disabled={busy !== ''}>start</button
+									>
 								{/if}
 								<label class="force">
 									<input
@@ -255,7 +271,8 @@
 										aria-label="force destroy {sandbox.name}"
 										disabled={busy !== ''}
 										checked={forcing === keyOf(sandbox)}
-										onchange={(event) => (forcing = event.currentTarget.checked ? keyOf(sandbox) : '')}
+										onchange={(event) =>
+											(forcing = event.currentTarget.checked ? keyOf(sandbox) : '')}
 									/>
 									<span>force</span>
 								</label>
@@ -302,7 +319,11 @@
 							{#if sandbox.status === 'running'}
 								<button onclick={() => stop(sandbox)} disabled={busy !== ''}>stop</button>
 							{:else}
-								<button aria-label="start {sandbox.name}" onclick={() => start(sandbox)} disabled={busy !== ''}>start</button>
+								<button
+									aria-label="start {sandbox.name}"
+									onclick={() => start(sandbox)}
+									disabled={busy !== ''}>start</button
+								>
 							{/if}
 							<label class="force">
 								<input
@@ -310,7 +331,8 @@
 									aria-label="force destroy {sandbox.name}"
 									disabled={busy !== ''}
 									checked={forcing === keyOf(sandbox)}
-									onchange={(event) => (forcing = event.currentTarget.checked ? keyOf(sandbox) : '')}
+									onchange={(event) =>
+										(forcing = event.currentTarget.checked ? keyOf(sandbox) : '')}
 								/>
 								<span>force</span>
 							</label>

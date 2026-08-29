@@ -23,7 +23,10 @@ body {
 	padding-left: max(1.5rem, env(safe-area-inset-left));
 	padding-right: max(1.5rem, env(safe-area-inset-right));
 	padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
-	font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+	font:
+		14px/1.5 ui-sans-serif,
+		system-ui,
+		sans-serif;
 	color: #e7e7e7;
 	background: #16181d;
 }

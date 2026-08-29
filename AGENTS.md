@@ -52,7 +52,9 @@ The author is an experienced .NET/C# developer **learning Go on this project**. 
 Approved dependencies: none currently in use — `slussd` is standard library only (`flag`,
 `net/http` including its method-and-wildcard mux patterns, `encoding/json`, `go:embed`).
 `spf13/cobra` and `charmbracelet/lipgloss` stay pre-approved if the CLI outgrows `flag`. Anything
-else, ask. The dashboard is SvelteKit with adapter-static, embedded into the binary.
+else, ask. The dashboard is SvelteKit with adapter-static, embedded into the binary. Its tooling follows
+babytabs and homehub rather than being chosen here; Prettier and prettier-plugin-svelte were added
+on that basis, at the versions those repos pin.
 
 ## Architecture rules
 
@@ -87,14 +89,14 @@ read path must tolerate a missing sandbox or a vanished worktree and report it r
 - Small changes. One concern per commit.
 - Run `task check` (gofmt + `go vet` + `go test` + shellcheck + the script's black-box tests) before finishing.
 - Dashboard work has its own gates, deliberately kept out of `task check` so a Go change does
-  not pay for a browser launch: `task check:web` (svelte-check) and `task test:web`
+  not pay for a browser launch: `task check:web` (Prettier + svelte-check) and `task test:web`
   (Vitest `unit` on node, `component` in a real headless Chromium). CI runs both. The
   component project needs Chromium in `~/.cache/ms-playwright`; the devcontainer installs it
   in postCreate, so on a fresh container run `task test:web` only after the rebuild finishes.
-- **The dashboard has no formatter.** Prettier and ESLint are not dependencies and there is no
-  config for either, so running one reformats the whole file to its defaults and buries the real
-  change. `task check:web` (svelte-check) and `task test:web` are the only frontend gates; match
-  the surrounding style by hand — tabs, single quotes.
+- **The dashboard is Prettier-formatted — don't hand-format it.** `web/dashboard/.prettierrc.json`
+  is byte-identical to the one in babytabs and homehub: tabs, single quotes, no trailing commas,
+  100 columns. `task fmt:web` writes, `task check:web` checks, and CI fails on unformatted code.
+  ESLint is still not a dependency, so `svelte-check` stays the only rule-level check.
 - When a spec detail is ambiguous, ask rather than guessing. This spec was iterated a lot; the gaps that remain are usually genuine uncertainty, not oversight.
 - If you discover sbx behaves differently to what the spec assumes, **stop and report it**. Several design decisions rest on sbx's actual behaviour; a wrong assumption should change the spec, not get worked around in code.
 - The plan's tasks are the unit of work: one task, one green gate, one commit. Don't gold-plate a

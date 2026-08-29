@@ -105,9 +105,7 @@ test('renders every sandbox as a card on a phone', async () => {
 	await expect.element(screen.getByText('dirty')).toBeVisible();
 	await expect.element(screen.getByText('2 unmerged')).toBeVisible();
 	// The two flags sit directly beside each other and need to read as two things.
-	expect(
-		getComputedStyle(screen.getByText('dirty').element()).marginRight
-	).not.toBe('0px');
+	expect(getComputedStyle(screen.getByText('dirty').element()).marginRight).not.toBe('0px');
 
 	expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
 
@@ -228,9 +226,7 @@ test('force stays armed when the confirm is dismissed', async () => {
 	await screen.getByRole('button', { name: 'destroy' }).first().click();
 
 	expect(calls).toHaveLength(0);
-	await expect
-		.element(screen.getByRole('checkbox', { name: 'force destroy auth' }))
-		.toBeChecked();
+	await expect.element(screen.getByRole('checkbox', { name: 'force destroy auth' })).toBeChecked();
 });
 
 test('a refusal renders the script stderr unchanged', async () => {
@@ -245,9 +241,7 @@ test('a refusal renders the script stderr unchanged', async () => {
 
 	await screen.getByRole('button', { name: 'destroy' }).first().click();
 
-	await expect
-		.element(screen.getByText('error: agent/auth has uncommitted changes'))
-		.toBeVisible();
+	await expect.element(screen.getByText('error: agent/auth has uncommitted changes')).toBeVisible();
 });
 
 test('keeps the nine-column table on a desktop', async () => {
@@ -297,7 +291,9 @@ test('says so when no repositories are configured, without hiding it', async () 
 	access.config = { ...access.config, repos: [], scopes: [] };
 	const screen = await render(Dashboard);
 
-	await expect.element(screen.getByText('No repositories configured', { exact: false })).toBeVisible();
+	await expect
+		.element(screen.getByText('No repositories configured', { exact: false }))
+		.toBeVisible();
 	expect(screen.getByRole('button', { name: 'New sandbox' }).elements()).toHaveLength(0);
 });
 
@@ -309,7 +305,9 @@ test('claims nothing about the configuration until it has arrived', async () => 
 	access.loaded = false;
 	const screen = await render(Dashboard);
 
-	expect(screen.getByText('No repositories configured', { exact: false }).elements()).toHaveLength(0);
+	expect(screen.getByText('No repositories configured', { exact: false }).elements()).toHaveLength(
+		0
+	);
 	expect(screen.getByRole('button', { name: 'New sandbox' }).elements()).toHaveLength(0);
 	// The fleet is independent of the configuration and still renders.
 	await expect.element(screen.getByText('auth', { exact: true })).toBeVisible();

@@ -33,7 +33,10 @@ test('fetches the configuration once and holds it', async () => {
 // slussd not answering is not worth breaking the page over: the create form is empty,
 // everything else still works.
 test('survives a failed fetch with the empty configuration', async () => {
-	vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new Error('offline'))));
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async () => Promise.reject(new Error('offline')))
+	);
 	const access = new Access();
 
 	access.load();

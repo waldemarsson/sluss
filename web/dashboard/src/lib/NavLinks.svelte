@@ -18,7 +18,10 @@
 	let current = $derived(
 		links
 			.filter((link) => pathname.startsWith(link.href))
-			.reduce<Link | null>((best, link) => (link.href.length > (best?.href.length ?? -1) ? link : best), null)
+			.reduce<Link | null>(
+				(best, link) => (link.href.length > (best?.href.length ?? -1) ? link : best),
+				null
+			)
 	);
 </script>
 

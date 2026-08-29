@@ -63,8 +63,9 @@ test('the kits route carries the kits area and nothing else', async () => {
 	// zoomed. The component's own scoped rule outranks the shared one, so this is the
 	// only place that can be asserted.
 	expect(parseFloat(getComputedStyle(editor).fontSize)).toBeGreaterThanOrEqual(16);
-	expect(screen.getByRole('button', { name: 'save' }).element().getBoundingClientRect().height)
-		.toBeGreaterThanOrEqual(44);
+	expect(
+		screen.getByRole('button', { name: 'save' }).element().getBoundingClientRect().height
+	).toBeGreaterThanOrEqual(44);
 
 	expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
 });
